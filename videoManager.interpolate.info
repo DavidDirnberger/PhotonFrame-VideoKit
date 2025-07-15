@@ -1,0 +1,34 @@
+##VIDEO MANAGER – interpolate
+
+#Usage:
+#------
+video interpolate [files] [--factor N]
+
+#Description:
+#------------
+Increases the frame rate of video files using ffmpeg's minterpolate filter.
+You can specify either a multiplication factor (e.g., 2x, 3X)
+or a target frame rate (e.g., 60).
+
+#Options:
+#--------
+--factor N         Interpolation factor indigcated with a x or X (e.g., 2x, 3X)
+		   or target frame rate (e.g., 60)
+                   If not provided, you will be prompted to enter one.
+
+#Behavior:
+#---------
+- If no input files specified, video files in the current directory are listed for selection.
+- Output files are named using the pattern:
+	originalname_interpolated2x.ext or originalname_interpolated60fps.ext
+- Only common video file types are supported: .mp4, .mkv, .webm, .avi, .mov, .flv
+
+#Examples:
+#---------
+video interpolate sample.mp4 --factor 2x
+video interpolate video1.mkv --factor 60
+
+#Notes:
+#------
+- Interpolation may increase file size significantly.
+- For best results, input video should have a relatively low starting frame rate (e.g., 24 or 30 fps).

@@ -1,0 +1,26 @@
+##screenrecord – Bildschirmaufnahme-Skript mit ffmpeg
+
+#Verwendung:
+  screenrecord              # Startet interaktive Bildschirmaufnahme
+  screenrecord --help       # Zeigt diese Hilfe an
+
+#Videooptionen:
+    mp4 (default), mkv
+
+#Audiooptionen:
+  - Bei Start wirst du gefragt:
+    1 = Kein Audio
+    2 = Systemaudio (PulseAudio)
+    3 = Mikrofon (z. B. default: alsa/pulse input)
+    4 = Beides (System & Mikro gemischt)
+
+   + Zusätzliche Abfrage des Mikrofons, wenn mehr als eines Vorhanden
+
+#Abhängigkeiten:
+  ffmpeg, xdotool, xrandr, x11-utils, pulseaudio
+
+#Aufnahme:
+  - Erkennt automatisch, auf welchem Monitor dein Terminal läuft
+  - Nimmt den gesamten Monitorbereich auf
+  - Speichert das Video in ~/data/Videos/screencast_YYYY-MM-DD_HH-MM-SS.mkv
+  - Die Aufnahme wird mit [ENTER] beendet

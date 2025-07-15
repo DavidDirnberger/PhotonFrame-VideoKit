@@ -1,0 +1,170 @@
+#!/bin/bash
+
+set -e
+
+fpath="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)"
+infofile="$fpath/description.info"
+
+
+# Infodatei anzeigen
+if [[ "$1" == "--help" ]]; then
+  cat $infofile
+  exit 0
+fi
+
+# ❗ Benötigte Programme
+REQUIRED_TOOLS=(xdotool xrandr ffmpeg)
+
+# 📦 Prüfen und ggf. installieren
+for tool in "${REQUIRED_TOOLS[@]}"; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "❌ '$tool' ist nicht installiert."
+    if command -v apt >/dev/null 2>&1; then
+      echo "🔧 Versuche '$tool' zu installieren..."
+      sudo apt update
+      sudo apt install -y "$tool"
+    else
+      echo "❗ Automatische Installation nicht möglich – bitte '$tool' manuell installieren."
+      exit 1
+    fi
+  fi
+done
+
+# 🎯 Fensterposition des aufrufenden Terminals
+win_id=$(xdotool getactivewindow)
+eval "$(xdotool getwindowgeometry --shell "$win_id")"
+term_x=$X
+term_y=$Y
+
+# 🖥 Monitorposition und Auflösung ermitteln
+monitor_info=$(xrandr | grep ' connected')
+monitor_found=false
+
+while read -r line; do
+  name=$(echo "$line" | awk '{print $1}')
+  res_pos=$(echo "$line" | grep -o '[0-9]\+x[0-9]\++[0-9]\++[0-9]\+')
+  [[ -z "$res_pos" ]] && continue
+
+  res=$(echo "$res_pos" | cut -d+ -f1)
+  pos_x=$(echo "$res_pos" | cut -d+ -f2)
+  pos_y=$(echo "$res_pos" | cut -d+ -f3)
+
+  width=$(echo "$res" | cut -dx -f1)
+  height=$(echo "$res" | cut -dx -f2)
+
+  if (( term_x >= pos_x && term_x < pos_x + width && term_y >= pos_y && term_y < pos_y + height )); then
+    echo "✅ Terminal befindet sich auf Monitor: $name ($width x $height @ ${pos_x},${pos_y})"
+    monitor_found=true
+    break
+  fi
+done <<< "$monitor_info"
+
+if ! $monitor_found; then
+  echo "❌ Fehler: Konnte Monitorposition des Terminals nicht bestimmen."
+  exit 1
+fi
+
+
+# Audio-Auswahl
+echo
+echo "🔊 Audioaufnahme:"
+echo "  [1] Kein Audio"
+echo "  [2] Systemaudio (PulseAudio)"
+echo "  [3] Mikrofon (z. B. default oder via arecord)"
+echo "  [4] Beides mischen (System + Mikrofon)"
+read -rp "Wähle Option [1-4]: " audio_choice
+
+# Füge passende Audio-Parameter hinzu
+audio_opts=()
+case "$audio_choice" in
+  1)
+    echo "🎧 Kein Audio wird aufgenommen."
+    ;;
+  2)
+    audio_opts=(-f pulse -i default)
+    echo "🎧 Aufnahme von Systemaudio aktiviert."
+    ;;
+  3)
+    audio_opts=(-f pulse -i alsa_input.pci-0000_00_1f.3.analog-stereo)
+    echo "🎙️ Aufnahme vom Mikrofon aktiviert."
+    ;;
+  4)
+    audio_opts=(-filter_complex "[1:a][2:a]amix=inputs=2:duration=first[a]" -map 0:v -map "[a]")
+    echo "🔈 Systemaudio + Mikrofon wird gemischt."
+    ;;
+  *)
+    echo "⚠️ Ungültige Auswahl – Standard: Kein Audio"
+    ;;
+esac
+
+# Videoformat abfragen
+echo
+read -rp "📼 In welchem Format speichern? [mp4/mkv/webm] (Standard: mp4): " video_format
+video_format=${video_format,,}  # Kleinbuchstaben
+if [[ -z "$video_format" ]]; then
+  video_format="mp4"
+fi
+
+case "$video_format" in
+  mp4|mkv|webm)
+    echo "💾 Aufnahmeformat: $video_format"
+    ;;
+  *)
+    echo "⚠️ Ungültiges Format '$video_format'. Fallback: mp4"
+    video_format="mp4"
+    ;;
+esac
+
+
+# 📁 Zielverzeichnis
+output_dir="$HOME/data/Videos/Screenrecords"
+mkdir -p "$output_dir"
+
+# 📼 Dateiname mit Zeitstempel
+out_file="$output_dir/screencast_$(date +%Y-%m-%d_%H-%M-%S).$video_format"
+
+# Mikrofonlautstärke auf 35 % setzen
+pactl set-source-volume alsa_input.pci-0000_05_00.6.analog-stereo 30%
+
+
+# Prüfe, ob module-echo-cancel geladen ist, falls nicht, lade es
+if ! pactl list modules short | grep -q module-echo-cancel; then
+  echo "🔄 Lade PulseAudio Echo-Cancel Modul..."
+  pactl load-module module-echo-cancel source_name=echo_cancel_source sink_name=echo_cancel_sink
+fi
+
+# Setze Mikrofon-Device auf echo-cancel-source (falls gewählt)
+MIC_SOURCE="alsa_input.pci-0000_05_00.6.analog-stereo"  # Backup fallback
+
+if pactl list sources short | grep -q echo_cancel_source; then
+  MIC_SOURCE="echo_cancel_source"
+fi
+
+# ▶️ Aufnahme starten
+echo "🎥 Aufnahme wird gestartet. Datei: $out_file"
+if [[ "$audio_choice" == "4" ]]; then
+  ffmpeg -f x11grab -r 30 -s "${width}x${height}" -i ":0.0+${pos_x},${pos_y}" \
+    -f pulse -i default -f pulse -i "$MIC_SOURCE" \
+    -filter_complex "[1:a]pan=mono|c0=c0[a1];[2:a]pan=mono|c0=c0[a2];[a1][a2]amix=inputs=2:duration=first[a]" \
+    -map 0:v -map "[a]" \
+    -c:v libx264 -preset ultrafast -crf 18 \
+    -c:a libopus -b:a 192k -ar 48000 \
+    "$out_file"
+elif [[ "$audio_choice" == "2" ]]; then
+  ffmpeg -f x11grab -r 30 -s "${width}x${height}" -i ":0.0+${pos_x},${pos_y}" \
+    -f pulse -i default \
+    -c:v libx264 -preset ultrafast -crf 18 \
+    -c:a libopus -b:a 192k -ar 48000 \
+    "$out_file"
+elif [[ "$audio_choice" == "3" ]]; then
+  ffmpeg -f x11grab -r 30 -s "${width}x${height}" -i ":0.0+${pos_x},${pos_y}" \
+    -f pulse -i "$MIC_SOURCE" \
+    -c:v libx264 -preset ultrafast -crf 18 \
+    -c:a libopus -b:a 192k -ar 48000 \
+    "$out_file"
+else
+  ffmpeg -f x11grab -r 30 -s "${width}x${height}" -i ":0.0+${pos_x},${pos_y}" \
+    -c:v libx264 -preset ultrafast -crf 18 \
+    "$out_file"
+fi
+

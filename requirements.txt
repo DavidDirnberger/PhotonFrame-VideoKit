@@ -1,0 +1,9 @@
+filelock
+fsspec
+jinja2
+networkx
+sympy
+typing-extensions
+triton==2.2.0
+ffmpeg-python
+numpy

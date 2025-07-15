@@ -1,0 +1,41 @@
+######################################################################################
+############################    Parameter for TOMKV    ###############################
+######################################################################################
+
+# Delete the original data:
+# yes, no, ask
+DELODAT = no
+
+
+# Chose the used videocodec
+# Otions are: h264 h265 copy
+
+CODEC = copy
+
+# Force Framerate
+
+FFRAMERATE = off
+
+# Constant Rate Factor
+# value between 0 and 51
+# the lower the value, the higher the quality
+
+CRF = off
+
+# Videosyncronisation values 0-2
+# 0 => passthrough with timestamps
+# 1 => dublicates frames and timecodes to reach the constant framerate
+# 2 => dublicates more frames and timecodes to reach the constant framerate
+
+VSYNC = off
+
+# Overall encoding settings, options are:
+# ultrafast, superfast, veryfast, faster, fast, medium
+# slow, slower (default), veryslow, placebo (ignore this), off
+
+PRESET = off
+
+# Automatically specifies your options, according to the video material.
+# Options: film, animation, grain, stillimage, fastdecode, zerolatency
+
+TUNE = off

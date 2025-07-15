@@ -1,0 +1,32 @@
+##VIDEO MANAGER – Overview
+
+
+#General usage:
+#--------------
+video <command> [options]
+
+#Available commands:
+#-------------------
+convert         Convert videos to other formats (mp4, mkv, avi, etc.)
+compress        Reduce file size using CRF compression
+trim            Cut videos using start time and duration
+crop-pad	Corp or pad to target resolution
+interpolate     Interpolate frames to increase framerate (e.g. 2x, 60fps)
+screencast      Start a screen recording script
+merge           Concatenate multiple video files into one
+extract         Extract audio,subtitle,frame or video from video
+gif             Convert video to animated GIF with optional meme text
+metadata        Show and edit metadata of video files
+
+#Passing Data
+#--------------
+You can use % as a wildcard for a placeholder of numbers
+video%.mp4 => {video1.mp4, video2.mp4, video034.mp4, ...}
+
+#Interactive use:
+#----------------
+Typing only `video` will launch an interactive menu to guide you through these options.
+
+#Help:
+#-----
+Use `video <command> --help` for specific info about each function.

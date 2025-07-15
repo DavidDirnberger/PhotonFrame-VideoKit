@@ -1,0 +1,35 @@
+##VIDEO MANAGER – crop-pad 📐
+
+This function crops or pads each video to match a target resolution without scaling
+and a offset in every direction is also possible.
+
+# Description
+#----------------------------------------------------------------------------------------
+- If the input video is **larger**, a centered region is cropped (with optional offset).
+- If the input is **smaller**, it is centered and padded with black borders.
+- Resolution is preserved; videos are never scaled.
+
+# Arguments (Flags)
+#---------------------------------------------------------------------------------------------
+- `--files`              	Input files or patterns (e.g. `video01.mp4`, `sample%.mkv`)
+- `--resolution WxH`     	Target resolution (e.g. `1920x1080`)
+- `--offset-x VALUE`     	Horizontal offset from center when cropping/padding (default: 0)
+- `--offset-y VALUE`     	Vertical offset from center when cropping/padding (default: 0)
+- `--output FILE`        	Optional: custom output filename [.mp4 added if missing]
+
+# Behavior
+#------------------------------------------------------------------------
+- Files like `clip%.mp4` are expanded using `%` as wildcard placeholder
+- Each input is processed and saved individually
+- Output filenames default to `<name>_WxH.mp4` unless overridden
+
+# Examples
+#---------------------------------------------------------------------------
+video crop-pad --files test01.mp4 --resolution 1920x1080
+video crop-pad sample%.mp4 --resolution 1280x720 --offset-x 50
+video crop-pad --files input01.mp4 --resolution 1024x768 --output result.mp4
+
+
+#---
+Note: If the crop region would fall outside the video bounds due to offset, the file is skipped.
+

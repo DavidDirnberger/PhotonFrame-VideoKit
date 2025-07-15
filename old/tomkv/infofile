@@ -1,0 +1,17 @@
+***************************************************************************
+============================| TOMKV-Converter |============================
+***************************************************************************
+
+Converts a lot of different video file formats (e.g. mp4, webm, ...) to mkv.
+The easiest use is to let tomkv look for the files to convert. Tomkv can
+eigther convert a single video file (optionally add subtitles .srt) or
+it can convert all videofiles in a folder to mkv.
+
+:: Usage ::
+tomkv [options] [optional input file] [optional output file]
+
+  *options*
+    -help/-info :: Outputs this informations
+    -par :: Copies the default parameter file to the current directory
+
+***************************************************************************

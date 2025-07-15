@@ -1,0 +1,36 @@
+##VIDEO MANAGER – trim
+
+#Usage:
+#------
+video trim [files] [--start STARTTIME] [--duration DURATION]
+
+#Description:
+#------------
+Cut a video to a part from STARTTIME to STARTTIME+DURATION of video files
+using ffmpeg trimming function.
+The times have to be in the format 00:00:00, whereby a starttime at minute 5
+can also be defined with no leading zeros => 5:00
+
+#Options:
+#--------
+--start STARTTIME     sets the time for the beginning of the trimmed version
+		      => 5:32 begins at minute 5 and seconds 32
+
+--duration DURATION   sets the duration of the cutted version
+		      => 28 will cut a 28 seconds video
+
+#Behavior:
+#---------
+- If no input files specified, video files in the current directory are listed for selection.
+- Output files are named using the pattern: originalname_trimmed.ext
+- Only common video file types are supported: .mp4, .mkv, .webm, .avi, .mov, .flv
+
+#Examples:
+#---------
+video interpolate sample.mp4 --start 1:02:32 --duration 52:35
+video interpolate video1.mkv --start 3:41 --duration 42
+
+#Notes:
+#------
+- ffmpeg is not very precise when it comes to times.
+  A few seconds of deviation can certainly occur.

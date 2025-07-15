@@ -1,0 +1,35 @@
+##screenrecord – Screen Recording Script using ffmpeg
+
+#Usage:
+#-----------------------------------------------
+video screenrecord # Starts interactive screen recording
+video screenrecord --help # Shows this help message
+
+#Video Options:
+#----------------
+mp4 (default), mkv
+
+#Audio Options:
+#---------------------------------------------------
+    At start, you will be asked:
+    1 = No audio
+    2 = System audio (PulseAudio)
+    3 = Microphone (e.g. default: ALSA/Pulse input)
+    4 = Both (system & microphone mixed)
+
+    If multiple microphones are detected, you'll be asked to choose one
+
+#Dependencies:
+#---------------------------------------------
+ffmpeg, xdotool, xrandr, x11-utils, pulseaudio
+
+#Recording:
+#----------------------------------------------------------
+    Automatically detects which monitor your terminal is on
+
+    Records the full screen of that monitor
+
+    Saves the video to: ~/data/Videos/screencast_YYYY-MM-DD_HH-MM-SS.mkv
+
+    Stop the recording by pressing [ENTER]
+

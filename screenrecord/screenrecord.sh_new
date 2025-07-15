@@ -1,0 +1,182 @@
+#!/bin/bash
+
+set -e
+
+fpath="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)"
+infofile="$fpath/description.info"
+
+
+# Infodatei anzeigen
+if [[ "$1" == "--help" ]]; then
+  cat $infofile
+  exit 0
+fi
+
+# ❗ Benötigte Programme
+REQUIRED_TOOLS=(xdotool xrandr ffmpeg)
+
+# 📦 Prüfen und ggf. installieren
+for tool in "${REQUIRED_TOOLS[@]}"; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "❌ '$tool' ist nicht installiert."
+    if command -v apt >/dev/null 2>&1; then
+      echo "🔧 Versuche '$tool' zu installieren..."
+      sudo apt update
+      sudo apt install -y "$tool"
+    else
+      echo "❗ Automatische Installation nicht möglich – bitte '$tool' manuell installieren."
+      exit 1
+    fi
+  fi
+done
+
+echo "!!! Aufnahme mit Strg-C abbrechen !!!"
+
+
+# 🎯 Fensterposition des aufrufenden Terminals
+win_id=$(xdotool getactivewindow)
+eval "$(xdotool getwindowgeometry --shell "$win_id")"
+term_x=$X
+term_y=$Y
+
+# 🖥 Monitorposition und Auflösung ermitteln
+monitor_info=$(xrandr | grep ' connected')
+monitor_found=false
+
+while read -r line; do
+  name=$(echo "$line" | awk '{print $1}')
+  res_pos=$(echo "$line" | grep -o '[0-9]\+x[0-9]\++[0-9]\++[0-9]\+')
+  [[ -z "$res_pos" ]] && continue
+
+  res=$(echo "$res_pos" | cut -d+ -f1)
+  pos_x=$(echo "$res_pos" | cut -d+ -f2)
+  pos_y=$(echo "$res_pos" | cut -d+ -f3)
+
+  width=$(echo "$res" | cut -dx -f1)
+  height=$(echo "$res" | cut -dx -f2)
+
+  if (( term_x >= pos_x && term_x < pos_x + width && term_y >= pos_y && term_y < pos_y + height )); then
+    echo "✅ Terminal befindet sich auf Monitor: $name ($width x $height @ ${pos_x},${pos_y})"
+    monitor_found=true
+    break
+  fi
+done <<< "$monitor_info"
+
+if ! $monitor_found; then
+  echo "❌ Fehler: Konnte Monitorposition des Terminals nicht bestimmen."
+  exit 1
+fi
+
+
+# Videoformat abfragen
+echo
+read -rp "📼 In welchem Format speichern? [mp4/mkv/webm] (Standard: mp4): " video_format
+video_format=${video_format,,}  # Kleinbuchstaben
+if [[ -z "$video_format" ]]; then
+  video_format="mp4"
+fi
+
+case "$video_format" in
+  mp4|mkv|webm)
+    echo "💾 Aufnahmeformat: $video_format"
+    ;;
+  *)
+    echo "⚠️ Ungültiges Format '$video_format'. Fallback: mp4"
+    video_format="mp4"
+    ;;
+esac
+
+# Audio-Auswahl
+echo
+echo "🔊 Audioaufnahme:"
+echo "  [1] Kein Audio"
+echo "  [2] Systemaudio (PulseAudio)"
+echo "  [3] Mikrofon (über ALSA/arecord für beste Qualität)"
+echo "  [4] Beides mischen (System + Mikrofon)"
+read -rp "Wähle Option [1-4]: " audio_choice
+
+
+# 📁 Zielverzeichnis
+output_dir="$HOME/data/Videos/Screenrecords"
+mkdir -p "$output_dir"
+
+# 📼 Dateiname mit Zeitstempel
+timestamp="$(date +%Y-%m-%d_%H-%M-%S)"
+video_file="$output_dir/screencast_${timestamp}_video.$video_format"
+sysaudio_file="$output_dir/screencast_${timestamp}_sysaudio.wav"
+mic_file="$output_dir/screencast_${timestamp}_mic.wav"
+final_file="$output_dir/screencast_${timestamp}.$video_format"
+
+if [ $audio_choice -gt 2 ];then
+# Mikrofonlautstärke auf 35 % setzen
+pactl set-source-volume alsa_input.pci-0000_05_00.6.analog-stereo 30%
+fi
+
+# Audioaufnahme vorbereiten
+case "$audio_choice" in
+  2)
+    echo "🎧 Aufnahme von Systemaudio (PulseAudio)..."
+    ffmpeg -f pulse -i default "$sysaudio_file" &
+    SYS_PID=$!
+    ;;
+  3)
+    echo "🎤 Verfügbare ALSA-Geräte:"
+    arecord -l
+    read -rp "👉 Gib deine Mikrofon-ID im Format card,device (z.B. 1,0): " mic_hw
+    mic_hw_id="hw:$mic_hw"
+    echo "🎙️ Mikrofonaufnahme (arecord)..."
+    arecord -f cd -D "$mic_hw_id" "$mic_file" &
+    MIC_PID=$!
+    ;;
+  4)
+    echo "🎤 Verfügbare ALSA-Geräte:"
+    arecord -l
+    read -rp "👉 Gib deine Mikrofon-ID im Format card,device (z.B. 1,0): " mic_hw
+    mic_hw_id="hw:$mic_hw"
+    echo "🎧🔈 Mix aus System + Mikrofon..."
+    ffmpeg -f pulse -i default "$sysaudio_file" &
+    SYS_PID=$!
+    arecord -f cd -D "$mic_hw_id" "$mic_file" &
+    MIC_PID=$!
+    ;;
+  *)
+    echo "📷 Nur Video ohne Audio wird aufgenommen."
+    ;;
+esac
+
+
+# ▶️ Aufnahme starten
+echo "🎥 Aufnahme wird gestartet..."
+
+# Starte Videoaufnahme (ohne Audio)
+ffmpeg -f x11grab -r 30 -s "${width}x${height}" -i ":0.0+${pos_x},${pos_y}" \
+  -c:v libx264 -preset ultrafast -crf 18 \
+  "$video_file" &
+VIDEO_PID=$!
+
+
+# Aufnahme beenden mit STRG+C
+trap "echo '⏹️ Stoppe Aufnahme...'; kill $VIDEO_PID $SYS_PID $MIC_PID 2>/dev/null; wait" INT
+wait
+
+# Verarbeitung
+echo "⚙️ Verarbeitung läuft..."
+
+if [[ "$audio_choice" == "2" ]]; then
+  ffmpeg -y -i "$video_file" -i "$sysaudio_file" -c:v copy -c:a aac -b:a 192k "$final_file"
+  rm -f "$sysaudio_file" "$video_file"
+elif [[ "$audio_choice" == "3" ]]; then
+  ffmpeg -y -i "$video_file" -i "$mic_file" -c:v copy -c:a aac -b:a 192k "$final_file"
+  rm -f "$mic_file" "$video_file"
+elif [[ "$audio_choice" == "4" ]]; then
+  ffmpeg -y -i "$video_file" -i "$sysaudio_file" -i "$mic_file" \
+    -filter_complex "[1:a][2:a]amix=inputs=2:duration=first[a]" -map 0:v -map "[a]" \
+    -c:v copy -c:a aac -b:a 192k "$final_file"
+  rm -f "$mic_file" "$sysaudio_file" "$video_file"
+else
+  mv "$video_file" "$final_file"
+fi
+
+echo "✅ Fertig! Datei gespeichert: $final_file"
+
+xdg-open $final_file

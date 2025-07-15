@@ -1,0 +1,50 @@
+##VIDEO MANAGER – gif
+
+#Usage:
+#------
+video gif [files] [--text-top TEXT] [--text-bottom TEXT] [--font-size SIZE]
+
+#Description:
+#------------
+Convert a video into an animated GIF using ffmpeg.  
+Optionally add meme-style white text at the top and/or bottom.  
+If no parameters are provided, an interactive mode is started.
+
+#Text Options:
+#-------------
+--text-top           Add text at the top of the GIF
+--text-bottom        Add text at the bottom of the GIF
+--font-size          Font size of the text (default: medium)
+                     Choices: small, medium, large
+
+#Interactive Mode:
+#-----------------
+If no input files are provided, you will be asked to:
+ - select the video file interactively
+ - enter optional top and bottom text (leave blank to skip)
+ - choose a font size: small, medium or large
+
+#Output:
+#-------
+- GIF is created in the same folder with `.gif` extension
+- The result will loop infinitely (`-loop 0`)
+- GIF opens automatically with the default viewer
+
+#Font Handling:
+#--------------
+- The script attempts to use the system-installed "Impact" font
+- If not available, it falls back to `impact.ttf` in the script folder
+- Make sure `impact.ttf` is present if system font is missing
+
+#Examples:
+#---------
+video gif clip.mp4
+video gif funny.mov --text-top "WHEN YOU CODE" --text-bottom "AND IT WORKS"
+video gif scene.mp4 --text-bottom "EPIC MOMENT" --font-size large
+
+#Notes:
+#------
+- Recommended input formats: mp4, mkv, mov
+- Output resolution is scaled to 320px width with preserved aspect ratio
+- Frame rate is fixed at 10 fps for reasonable file size
+

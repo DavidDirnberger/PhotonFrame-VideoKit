@@ -1,0 +1,35 @@
+##VIDEO MANAGER – extract 🧲
+
+Extract specific components from video files such as audio tracks, subtitles, single frames, or the raw video without audio/subs.
+
+# Description
+#-----------------------------------------------------------------------------------
+- Extract **all audio tracks** as `.mp3`
+- Extract **all or selected subtitles** in the format of your choice (`srt`, `ass`, `vtt`)
+- Extract a **single frame** at a specific timestamp or at the middle of the video
+- Create a **video-only version** without audio or subtitles
+
+# Arguments (Flags)
+#--------------------------------------------------------------------------------------
+- `--files`               Input file(s) or patterns (e.g. `clip%.mp4`)
+- `--audio`               Extract all audio streams (e.g. `file_audio0.mp3`, `file_audio1.mp3`)
+- `--subtitle NAME`       Extract subtitle by name (or all, if unspecified)
+- `--format srt|ass|vtt`  Subtitle export format (default: `srt`)
+- `--frame TIME`          Extract frame at `TIME` (e.g. `00:02:30`) – default is middle of video
+- `--video`               Remove all audio/subs, output video only
+
+# Interactive fallback
+#--------------------------------
+If none of the above flags are set, the user will be prompted to choose one or more of the extract types interactively.
+
+# Examples
+#-----------------------------------------------------------------
+video extract --files movie.mp4 --audio
+video extract --subtitle German --format ass
+video extract --frame 90
+video extract --video
+video extract clip%.mp4         # Interactive mode (choose a/s/f/v)
+
+#---
+Note: Extracted files will be named based on the input (e.g. `video_audio0.mp3`, `video_sub0.srt`, `video_frame.png`, `video_video.mp4`).
+

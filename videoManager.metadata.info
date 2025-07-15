@@ -1,0 +1,69 @@
+## VIDEO MANAGER – metadata
+
+# Usage:
+# ------
+video metadata [files] [--key VALUE ...] [--list-tags] [--list-tag-KEY] [--list-tags-json]
+
+# Description:
+# ------------
+Display, edit, or remove metadata from video files.
+Supports both CLI flags and a full-screen interactive menu.
+Also checks for and optionally embeds cover thumbnails.
+
+# Main Flags:
+# -----------
+--list-tags           Show all metadata tags currently set
+--list-tags-json      Output all tags in JSON format
+--list-tag-<key>      Show the value of a specific tag (e.g. --list-tag-title)
+
+# Editable Tags:
+# --------------
+--title               Video title
+--artist              Creator or performer
+--album               Album name
+--genre               Genre (e.g. Drama, Sci-Fi)
+--comment             Personal comment or note
+--date                Release date
+--track               Track number in album or series
+--composer            Composer of the content
+--publisher           Publisher or distributor
+--language            Language of the content
+--show                Name of a TV show or series
+--season_number       Season number
+--episode_id          Episode or part number
+--network             Broadcasting network
+--director            Director of the video
+--production_year     Year the content was produced
+--keywords            Searchable keywords
+
+# Thumbnail Support:
+# ------------------
+- Program detects presence of thumbnails (MP4: attached_pic / MKV: mjpeg or attachment)
+- Interactive mode allows setting a thumbnail from image or frame
+- Existing thumbnails are automatically removed before replacing
+
+# Protected Tags (Not Editable):
+# ------------------------------
+major_brand, minor_version, compatible_brands, encoder, duration
+These are essential for format compatibility and are not user-editable.
+
+# Interactive Mode:
+# -----------------
+If no metadata flags are passed, an interactive editor will launch:
+- Shows all editable tags, grouped by whether they are set or not
+- Colored display and aligned formatting for clarity
+- Set a tag by entering a value, delete it by leaving input blank
+
+# Examples:
+# ---------
+video metadata movie.mp4 --title "My Title" --artist "Jane Doe"
+video metadata series.mkv --list-tag-director
+video metadata anime.mp4 --list-tags-json
+video metadata oldmovie.mp4  ← (opens interactive menu)
+
+# Notes:
+# ------
+- Changes are written directly into the original file.
+- It's recommended to back up your files before batch editing.
+- Only tags supported by the container format (e.g. MP4/MKV) will be preserved.
+- VLC or media libraries may cache thumbnails: use a different filename or clear cache to update view!!!

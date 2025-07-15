@@ -1,0 +1,34 @@
+##VIDEO MANAGER – convert
+
+#Usage:
+#------
+video convert [files] [--format FORMAT] [--preset PRESET] [--resolution RES] [--framerate FPS]
+
+#Description:
+#------------
+Convert videos into a selected format using ffmpeg.
+Supports interactive mode if no parameters are given.
+
+#Formats:
+#--------
+--format, -f        Target format: mp4 (default), mkv, webm, avi, mov, flv, mpeg
+--preset, -p        Device presets:
+                    messenger (super fast), web (fast), casual (balanced) (default), cinema (slow)
+--resolution, -r    Target resolution: 240p, 360p, 480p, 720p, 1080p or original (default)
+--framerate, -fr    Target FPS: 15 (Low quality), 23.976 (NTSC film), 24 (Cinema standard),
+				29.97 (NTSC TV), 30 (Web/mobile), 50 (PAL HD),
+				59.94 (NTSC HD), 60 (YouTube/Gaming), 120 (High FPS/Slow motion),
+ 				original (Use original framerate) (default)
+--codec		    Target codec: libx264, libx265, vp9, mpeg4, copy (default)
+
+
+#Examples:
+#---------
+video convert video1.avi --format mp4 --preset smartphone
+video convert --format mkv --resolution 1080p --framerate 30
+
+#Notes:
+#------
+- Input files will be searched in the current directory if not specified.
+- Supports input: .mp4, .mkv, .avi, .mov, .flv, .webm
+- Output is saved in the same directory with the new format extension.

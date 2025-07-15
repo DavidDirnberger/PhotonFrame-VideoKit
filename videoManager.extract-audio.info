@@ -1,0 +1,15 @@
+##VIDEO MANAGER - extract-audio
+
+#Usage:
+#--------------------------------------------
+video extract-audio [files]
+
+#About:
+#--------------------------------------------------------
+    This is a simple tool which extracts audio from a video file
+    and saves it in a mp3 file.
+
+#Output:
+#-------------------------------------------------------
+    The extraced mp3 files will be saved alongside original as: filename.mp3
+

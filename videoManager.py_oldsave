@@ -1,0 +1,813 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+import shutil
+import argparse
+import subprocess
+import tempfile
+import sys
+import os
+import time
+import threading
+import re
+import json
+from pathlib import Path
+
+
+ANSI_RESET = "\033[0m"
+CLEAR_LINE = "\033[2K"           # clear entire line
+ANSI_REGEX = re.compile(r"\x1b\[[0-9;]*m")  # strip colours for length calc
+TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCREENCAST_SCRIPT = os.path.join(SCRIPT_DIR, "screenrecord", "screenrecord.sh")
+SCREENCAST_INFO = os.path.join(SCRIPT_DIR, "screenrecord", "screenrecord.info")
+
+VIDEO_EXTENSIONS = [".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv"]
+
+FORMATS = ["mp4", "mkv", "avi", "mov", "webm", "flv", "mpeg"]
+FORMAT_DESCRIPTIONS = {
+    "mp4": "🎥 MP4  – widley supported, ideal for web and mobile (uses H.264/H.265).",
+    "mkv": "🎞  MKV  – supporting multiple audio and subtitle tracks, great for archiving.",
+    "avi": "📼 AVI  – Older format with larger file sizes and less efficient compression.",
+    "mov": "🍏 MOV  – Apple QuickTime format, high quality, best for macOS/iOS.",
+    "webm": "🌐 WEBM – Open format optimized for web use (uses VP8/VP9 codecs).",
+    "flv": "📺 FLV  – Flash video format, outdated but still used in legacy content.",
+    "mpeg": "💿 MPEG – Early standard (MPEG-1/2), used in older systems and DVDs."
+}
+PRESETS = {
+    "messenger": "-preset ultrafast -crf 32 -vf scale=640:-2",
+    "web": "-preset veryfast -crf 28",
+    "casual": "-preset medium -crf 24",
+    "cinema": "-preset slow -crf 20"
+}
+PRESET_DESCRIPTIONS = {
+    "messenger": "📱 Messenger – Super fast, low quality, small file (for chat apps)",
+    "web":       "🌐 Web – Fast encoding, reduced size, decent quality (for online use)",
+    "casual":    "🎞 Casual – Balanced quality and speed (for everyday viewing)",
+    "cinema":    "🎬 Cinema – High quality, slower encoding (for film-like output)"
+}
+RESOLUTIONS = ["original", "1080p", "720p", "480p", "360p", "240p"]
+RESOLUTION_SCALES = {
+    "240p": "426:240",
+    "360p": "640:360",
+    "480p": "854:480",
+    "720p": "1280:720",
+    "1080p": "1920:1080"
+}
+
+FRAMERATES = ["original", "15", "23.976", "24", "25", "29.97", "30", "50", "59.94", "60", "120"]
+
+FRAMERATE_DESCRIPTIONS = {
+    "15": "15 fps - Low quality / surveillance",
+    "23.976": "23.976 fps - NTSC film",
+    "24": "24 fps - Cinema standard",
+    "25": "25 fps - PAL (Europe)",
+    "29.97": "29.97 fps - NTSC (TV)",
+    "30": "30 fps - Web & mobile",
+    "50": "50 fps - PAL HD",
+    "59.94": "59.94 fps - NTSC HD",
+    "60": "60 fps - YouTube / Gaming",
+    "120": "120 fps - High FPS / Slow motion",
+    "original": "Use original framerate"
+}
+
+
+def ask_user(prompt, options, descriptions=None):
+    print(" ")
+    print(f"{prompt}:")
+    print("----------------------------------")
+    for i, opt in enumerate(options):
+        if descriptions and opt in descriptions:
+            desc = f"{descriptions[opt]}"
+        else:
+            desc = opt  # Fallback: zeige Option selbst als Text
+        print(f"    [{i+1}] {desc}")
+    print("    [0] 🚪 Exit")
+    print(" ")
+    choice = input("\033[1;33m      Choose an option: \033[0m")
+    if choice == "0":
+        print("Exiting...")
+        sys.exit(0)
+    try:
+        return options[int(choice)-1]
+    except:
+        return options[0]
+
+
+def find_video_files():
+    cwd = Path.cwd()
+    return [p.name for p in cwd.iterdir() if p.suffix.lower() in VIDEO_EXTENSIONS]
+
+
+
+def parse_file_selection(input_str: str, max_index: int) -> list[int]:
+    if not input_str.strip():  # ENTER = alle
+        return list(range(max_index))
+
+    if input_str.strip() == '0':
+        sys.exit(0)
+    result = set()
+    parts = re.split(r"[\s,]+", input_str.strip())
+    last = -1
+    for part in parts:
+        if '-' in part:
+            start, end = part.split('-', 1)
+            if start.isdigit() and end.isdigit():
+                result.update(range(int(start)-1, int(end)))
+                last = int(end)-1
+        elif part == '+':
+            if last >= 0:
+                result.update(range(last, max_index))
+        elif part.isdigit():
+            idx = int(part) - 1
+            if 0 <= idx < max_index:
+                result.add(idx)
+                last = idx
+    return sorted(result)
+
+def select_files_interactively():
+    found_files = find_video_files()
+    if not found_files:
+        print("\n  No video files found!")
+        sys.exit(0)
+        #return []
+
+    print("\n Found Files:")
+    for i, f in enumerate(found_files):
+        print(f"  {i+1}. {Path(f).name}")
+
+    print("\nEnter numbers to select files (e.g. 1,3,5-7,+), press ENTER for all, or 0 to Exit:")
+    user_input = input("> ")
+    indices = parse_file_selection(user_input, len(found_files))
+    return [found_files[i] for i in indices] if indices else []
+
+
+
+# ---------------------------------------------------------------------------
+# Helper: get duration of a media file --------------------------------------
+# ---------------------------------------------------------------------------
+
+
+def get_duration(file_path: str | Path) -> float | None:
+    try:
+        res = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-i", str(file_path)],
+            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", res.stderr)
+        if m:
+            h, mi, s = m.groups()
+            return int(h) * 3600 + int(mi) * 60 + float(s)
+    except FileNotFoundError:
+        print("ffmpeg not found – install it first.")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Colour gradient helper -----------------------------------------------------
+# ---------------------------------------------------------------------------
+
+def _gradient_colour(progress: float):
+    """Return RGB tuple for a purple→blue→green gradient at *progress* (0–1)."""
+    progress = max(0.0, min(progress, 1.0))
+    if progress < 0.5:
+        # Purple (255,0,255) to Blue (0,0,255)
+        t = progress * 2  # scale 0–0.5 → 0–1
+        r = int(255 * (1 - t))          # 255 → 0
+        g = 0
+        b = 255
+    else:
+        # Blue (0,0,255) to Green (0,255,0)
+        t = (progress - 0.5) * 2        # scale 0.5–1 → 0–1
+        r = 0
+        g = int(255 * t)                # 0 → 255
+        b = int(255 * (1 - t))          # 255 → 0
+    return r, g, b
+
+
+def _visible_len(text: str) -> int:
+    """Printable length without ANSI escape sequences."""
+    return len(ANSI_REGEX.sub("", text))
+
+# ---------------------------------------------------------------------------
+# Two‑line refresh helper ----------------------------------------------------
+# ---------------------------------------------------------------------------
+
+def _print_two_lines(text_line: str, bar_line: str) -> None:
+    """Helper to overwrite the previous two‑line block in place."""
+    sys.stdout.write("\033[2F")           # move cursor up 2 lines
+    sys.stdout.write(CLEAR_LINE + text_line + "\n")
+    sys.stdout.write(CLEAR_LINE + bar_line + "\n")
+    sys.stdout.flush()
+
+
+# ---------------------------------------------------------------------------
+# Silent ffmpeg with progress ----------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+def run_ffmpeg_with_progress(
+    input_file: str | Path,
+    ffmpeg_cmd: list[str],
+    progress_line: str,
+    finished_line: str,
+    bar_len_default: int = 80,
+    min_bar: int = 20,
+) -> None:
+    term_cols = shutil.get_terminal_size((80, 20)).columns
+    input_file = Path(input_file)
+
+    # Truncate progress_line if too long
+    if _visible_len(progress_line) > term_cols:
+        progress_line = progress_line[: term_cols - 1] + "…"
+
+    # Determine output path (last arg unless trailing -y)
+    output_arg = ffmpeg_cmd[-1] if ffmpeg_cmd[-1] != "-y" else ffmpeg_cmd[-2]
+    output_path = Path(output_arg)
+    if output_path.exists():
+        if input(f"File '{output_path}' exists. Overwrite? [y/N]: ").strip().lower() != "y":
+            print("  ➜ Skipping.")
+            return
+        else:
+            ffmpeg_cmd.insert(-1, "-y")
+
+    duration = get_duration(input_file)
+    if not duration:
+        print(progress_line)
+        subprocess.run(ffmpeg_cmd)
+        print(finished_line)
+        return
+
+    # Reserve two lines
+    print("\n\n", end="", flush=True)
+
+    # Bar width fixed by terminal width only
+    static_len = len(" 100% []")
+    bar_len = max(min_bar, min(bar_len_default, term_cols - static_len))
+
+    def make_bar(progress: float) -> str:
+        filled = int(bar_len * progress)
+        r, g, b = _gradient_colour(progress)
+        colour = f"\033[38;2;{r};{g};{b}m"
+        inner = f"{colour}{'█'*filled}{ANSI_RESET}{' '*(bar_len-filled)}"
+        return f"[{inner}] {progress*100:3.0f}%", colour
+
+    # Initial 0‑% display
+    bar0, colour0 = make_bar(0)
+    _print_two_lines(f"{colour0}{progress_line}{ANSI_RESET}", bar0)
+
+    # Run FFmpeg and parse carriage‑return updates
+    with subprocess.Popen(ffmpeg_cmd, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, bufsize=0) as proc:
+        buf = b""
+        while True:
+            chunk = proc.stderr.read(1024)
+            if not chunk and proc.poll() is not None:
+                break
+            if not chunk:
+                continue
+            buf += chunk
+            parts = buf.split(b"\r")
+            buf = parts.pop()
+            for part in parts:
+                try:
+                    line = part.decode(errors="ignore")
+                except UnicodeDecodeError:
+                    continue
+                m = TIME_RE.search(line)
+                if not m:
+                    continue
+                h, mi, s = m.groups()
+                current = int(h) * 3600 + int(mi) * 60 + float(s)
+                progress = min(current / duration, 1.0)
+                bar_str, colour = make_bar(progress)
+                truncated_line = progress_line
+                if _visible_len(truncated_line) > term_cols:
+                    truncated_line = truncated_line[: term_cols - 1] + "…"
+                _print_two_lines(f"{colour}{truncated_line}{ANSI_RESET}", bar_str)
+
+        proc.wait()
+
+    # Prepare safe finished line (truncate if needed)
+    MIN_TEXT_MARGIN = 8
+    vis_len = _visible_len(finished_line)
+    max_vis = term_cols - MIN_TEXT_MARGIN
+    if vis_len > term_cols:
+        plain = finished_line
+        if len(plain) > term_cols:
+            finished_line = plain[: term_cols - 1] + "…"
+        finished_line = plain[: max_vis - 1] + "…"
+
+    # Final line, clear bar
+    green = "\033[38;2;0;255;0m"
+    sys.stdout.write("\033[2F")
+    sys.stdout.write(CLEAR_LINE + f"{green}{finished_line}{ANSI_RESET}\n")
+    sys.stdout.write(CLEAR_LINE)
+    sys.stdout.flush()
+
+
+def convert(args):
+    print("\n[convert] Start video conversion...\n")
+
+    if hasattr(args, 'files') and args.files:
+        files = args.files
+    else:
+        files = select_files_interactively()
+
+
+    format_choice = getattr(args, 'format', None) or ask_user("Choose output format", FORMATS,FORMAT_DESCRIPTIONS)
+    preset_choice = getattr(args, 'preset', None) or ask_user("Select preset target format", list(PRESETS.keys()),PRESET_DESCRIPTIONS)
+    resolution = getattr(args, 'resolution', None) or ask_user("Choose target resolution", RESOLUTIONS)
+    framerate = getattr(args, 'framerate', None) or ask_user("Select target frame rate", FRAMERATES, FRAMERATE_DESCRIPTIONS)
+    print(" ")
+    print(f"   Start converting {len(files)} files:")
+    for file in files:
+        print(f"   => {file}")
+    print("--------------------------------------")
+    print(" ")
+    conversions = []
+    for file in files:
+        input_path = Path(file).resolve()
+        if not input_path.exists():
+            print(f"File not found: {input_path}")
+            continue
+
+        output_path = input_path.with_suffix(f".{format_choice}")
+        ofile = input_path.with_suffix(f".{format_choice}").name
+        ffmpeg_cmd = ["ffmpeg", "-i", str(input_path)]
+
+        if resolution != "original":
+            scale = RESOLUTION_SCALES.get(resolution)
+            if scale:
+                ffmpeg_cmd += ["-vf", f"scale={scale}"]
+
+        if framerate != "original":
+            ffmpeg_cmd += ["-r", framerate]
+
+        ffmpeg_cmd += PRESETS[preset_choice].split()
+        ffmpeg_cmd += [str(output_path)]
+
+        #print(f"\n{file} -> {ofile}\n")
+        # subprocess.run(ffmpeg_cmd)
+        #run_ffmpeg_silent(ffmpeg_cmd, f"Converting {file}")
+        run_ffmpeg_with_progress(file,ffmpeg_cmd,f"Converting '{file}' ...",f"{file} -> {ofile}")
+    print("\n  ==================================================")
+    print("  ==============  [convert] Finished  ==============")
+    print("  ==================================================")
+    print(" ")
+
+def screencast(args):
+    print("\n [screencast] Start screencast...")
+    subprocess.run(["bash", SCREENCAST_SCRIPT])
+
+def interpolate(args):
+    print("\n [interpolate] Start interpolating video...")
+    if hasattr(args, 'files') and args.files:
+        files = args.files
+    else:
+        files = select_files_interactively()
+
+    factor_input = args.factor or input("Framerate factor or target FPS (e.g. 2x, 0.5X or 60): ").strip()
+
+    # Entscheide, ob Faktor oder Ziel-FPS
+    match = re.fullmatch(r"(?i)(\d*\.?\d+)x", factor_input)
+    if match:
+        # Faktor-Modus
+        factor_value = float(match.group(1))
+        is_factor = True
+    else:
+        try:
+            # Ziel-FPS-Modus
+            fps_value = float(factor_input)
+            is_factor = False
+        except ValueError:
+            print(f"Invalid input: '{factor_input}'")
+            return
+
+#    files = args.files or find_video_files()
+    for file in files:
+        path = Path(file)
+        if not path.exists():
+            continue
+
+        # Ermittele Original-FPS
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+             "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        try:
+            rate_str = result.stdout.strip()
+            num, denom = map(int, rate_str.split("/"))
+            original_fps = num / denom
+        except Exception:
+            print(f"Could not determine FPS for: {path.name}")
+            continue
+
+        target_fps = factor_value * original_fps if is_factor else fps_value
+        print(f"  {path.name}: original FPS = {original_fps:.2f}, target FPS = {target_fps:.2f}")
+
+        suffix = f"_interpolated{factor_input}"
+        output = path.with_stem(path.stem + suffix)
+
+        cmd = [
+            "ffmpeg", "-i", str(path),
+            "-filter:v", f"minterpolate='mi_mode=mci:mc_mode=aobmc:vsbmc=1:fps={target_fps}'",
+            str(output)
+        ]
+        #subprocess.run(cmd)
+        run_ffmpeg_with_progress(path.name,cmd,f"interpolating '{path.name}' from {original_fps:.2f} FPS to {target_fps:.2f} FPS",f"{path.name}: original FPS = {original_fps:.2f}, target FPS = {target_fps:.2f}")
+    print("\n  ========================================================")
+    print("  ==============  [interpolation] Finished  ==============")
+    print("  ========================================================")
+    print(" ")
+
+
+def trim(args):
+    print("\n [trim] Start trimming video...")
+    print(" ")
+    if hasattr(args, 'files') and args.files:
+        files = args.files
+    else:
+        files = select_files_interactively()
+    start = args.start or input("Trim starttime (z.B. 00:01:00): ")
+    duration = args.duration or input("Trim duration (z.B. 00:00:10): ")
+    for file in files:
+        path = Path(file)
+        output = path.with_stem(path.stem + "_trimmed")
+        cmd = ["ffmpeg", "-ss", start, "-i", str(path), "-t", duration, "-c", "copy", str(output)]
+        #subprocess.run(cmd)
+        run_ffmpeg_with_progress(path.name,cmd,f"trimming '{path.name}' from {start} to {start+duration}",f"{path.name}: {start} - {start+duration}")
+    print("\n  ===============================================")
+    print("  ==============  [trim] Finished  ==============")
+    print("  ===============================================")
+    print(" ")
+
+def compress(args):
+    print("\n [compress] Start compressing video...\n")
+    print(" ")
+    if hasattr(args, 'files') and args.files:
+        files = args.files
+    else:
+        files = select_files_interactively()
+
+    # Benutzereingabe für Qualität zwischen 0 und 100
+    input_quality = args.quality or input("Compression quality (0 = max compression, 100 = best quality): ").strip()
+    try:
+        quality_percent = int(input_quality)
+        if not (0 <= quality_percent <= 100):
+            raise ValueError
+    except ValueError:
+        print("Invalid input. Please enter a number between 0 and 100.")
+        return
+
+    # Mapping von 0–100 auf CRF (empfohlener Bereich 18–30)
+    crf_value = 30 - (quality_percent / 100 * 12)  # 100 → 18, 0 → 30
+    crf_value = round(crf_value, 1)
+
+    print(f"  → Mapped quality {quality_percent} to CRF = {crf_value}")
+
+    is_kitty = os.environ.get("TERM", "") == "xterm-kitty"
+
+    for file in files:
+        path = Path(file)
+        output = path.with_stem(path.stem + "_compressed")
+        cmd = [
+            "ffmpeg", "-i", str(path),
+            "-vcodec", "libx264",
+            "-crf", str(crf_value),
+            "-preset", "slow",
+            "-acodec", "aac", "-b:a", "128k",
+            str(output)
+        ]
+        run_ffmpeg_with_progress(path.name, cmd, f"compressing '{path.name}' to quality {quality_percent}", f"{path.name} compressed to {quality_percent}% quality")
+
+        # Vorschaufunktion: Vergleich Original vs. Komprimiert (nur wenn Kitty-Terminal)
+        if is_kitty:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                original_preview = Path(tmpdir) / "original_preview.jpg"
+                compressed_preview = Path(tmpdir) / "compressed_preview.jpg"
+
+                def extract_middle_frame(video_path, output_path):
+                    probe = subprocess.run([
+                        "ffprobe", "-v", "error", "-select_streams", "v:0",
+                        "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+                        str(video_path)
+                    ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+
+                    try:
+                        duration = float(probe.stdout.strip())
+                        midpoint = duration / 2
+                    except Exception:
+                        midpoint = 1.0
+
+                    subprocess.run([
+                        "ffmpeg", "-v", "error", "-y", "-ss", str(midpoint), "-i", str(video_path),
+                        "-frames:v", "1", str(output_path)
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                extract_middle_frame(path, original_preview)
+                extract_middle_frame(output, compressed_preview)
+
+                print("\n  Preview comparison:")
+                subprocess.run(f"kitty +kitten icat {original_preview}", shell=True)
+                print("[original] ⤴                     [compressed] ⤵ ")
+                subprocess.run(f"kitty +kitten icat {compressed_preview}", shell=True)
+        else:
+            print("\n  (Preview skipped – not running in Kitty terminal)")
+
+        original_size = path.stat().st_size / (1024 * 1024)
+        compressed_size = output.stat().st_size / (1024 * 1024)
+        print(f"  Size: original = {original_size:.2f} MB → compressed = {compressed_size:.2f} MB")
+
+    print("\n  ===================================================")
+    print("  ==============  [compress] Finished  ==============")
+    print("  ===================================================\n")
+
+
+
+def gif(args):
+    print("\n [gif] Start converting video into animated gif...\n")
+    print(" ")
+    if hasattr(args, 'files') and args.files:
+        files = args.files
+    else:
+        files = select_files_interactively()
+    
+    for file in files:
+        path = Path(file)
+        output = path.with_suffix(".gif")
+        cmd = ["ffmpeg", "-i", str(path), "-vf", "fps=10,scale=320:-1:flags=lanczos", "-loop", "0", str(output)]
+        run_ffmpeg_with_progress(path.name,cmd,f"creating gif from '{path.name}'",f"{str(output)} created")
+        subprocess.run(["xdg-open", str(output)])
+    print("\n  ===============================================")
+    print("  ==============  [gif] Finished  ==============")
+    print("  ===============================================")
+    print(" ")
+
+
+
+def extract_audio(args):
+    print("\n [gif] Start converting video into animated gif...\n")
+    print(" ")
+    if hasattr(args, 'files') and args.files:
+        files = args.files
+    else:
+        files = select_files_interactively()
+
+    for file in files:
+        path = Path(file)
+        output = path.with_suffix(".mp3")
+        cmd = ["ffmpeg", "-i", str(path), "-q:a", "0", "-map", "a", str(output)]
+        run_ffmpeg_with_progress(path.name,cmd,f"creating gif from '{path.name}'",f"{str(output)} created")
+    print("\n  ===============================================")
+    print("  ==============  [extract-audio] Finished  ==============")
+    print("  ===============================================")
+    print(" ")
+
+
+
+def metadata(args):
+
+
+    print("\n [metadata] Displaying video metadata...\n")
+
+    files = args.files if getattr(args, 'files', None) else select_files_interactively()
+
+    for file in files:
+        path = Path(file)
+        print(f"\nMetadata for {path.name}:")
+
+        # Metadaten extrahieren
+        result = subprocess.run([
+            "ffprobe", "-v", "error",
+            "-show_entries", "format_tags",
+            "-of", "json",
+            str(path)
+        ], capture_output=True, text=True)
+
+        tags = {}
+        protected_keys = {"major_brand", "minor_version", "compatible_brands", "encoder"}
+
+        try:
+            metadata = json.loads(result.stdout)
+            tags = metadata.get("format", {}).get("tags", {})
+            if tags:
+                print("\n  Current Metadata Tags:")
+                for key, value in tags.items():
+                    label = "(protected)" if key in protected_keys else ""
+                    print(f"   {key}: {value} {label}")
+            else:
+                print("  No metadata found.")
+        except json.JSONDecodeError:
+            print("  Could not parse metadata.")
+
+        original_tags = tags.copy()
+        deleted_keys = set()
+
+        if not any([getattr(args, 'title', None), getattr(args, 'artist', None), getattr(args, 'comment', None)]):
+            choice = input("\n  Do you want to edit metadata? [y/N]: ").strip().lower()
+            if choice != 'y':
+                continue
+
+            while True:
+                editable_keys = [k for k in tags.keys() if k not in protected_keys]
+                for std_key in ["show", "season_number", "episode_id""title", "artist", "comment", "album", "genre", "date"]:
+                    if std_key not in editable_keys:
+                        editable_keys.append(std_key)
+
+                print("\n  Editable Metadata Tags:")
+                for i, key in enumerate(editable_keys, 1):
+                    print(f"   [{i}] {key} = {tags.get(key, '')}")
+                print("   [0] Exit")
+                print("   [?] Help")
+
+                user_input = input("\n  Select tag number to edit or delete: ").strip()
+                if user_input == '?':
+                    print("\n  Help:")
+                    print("   Tags marked as '(protected)' are essential container-level identifiers")
+                    print("   for video format compatibility (e.g., MP4 playback). They cannot be removed")
+                    print("   or modified via standard metadata editing and are excluded from this menu.")
+                    continue
+
+                try:
+                    sel = int(user_input)
+                except ValueError:
+                    print("  Invalid input. Please enter a number or '?' for help.")
+                    continue
+
+                if sel == 0:
+                    if tags == original_tags and not deleted_keys:
+                        print("\n  Quit video Manager")
+                        sys.exit(0)
+                    else:
+                        break
+                elif 1 <= sel <= len(editable_keys):
+                    key = editable_keys[sel - 1]
+                    new_value = input(f"  Enter new value for '{key}' (leave empty to delete): ").strip()
+                    if new_value:
+                        tags[key] = new_value
+                        deleted_keys.discard(key)
+                    elif key in tags:
+                        del tags[key]
+                        deleted_keys.add(key)
+                        print(f"  Tag '{key}' deleted.")
+                else:
+                    print("  Invalid selection.")
+        else:
+            if args.title:
+                tags['title'] = args.title
+            if args.artist:
+                tags['artist'] = args.artist
+            if args.comment:
+                tags['comment'] = args.comment
+
+        temp_file = path.with_stem(path.stem + "_temp")
+
+        cmd = [
+            "ffmpeg", "-y", "-i", str(path),
+            "-map", "0", "-map_metadata", "-1",
+            "-movflags", "use_metadata_tags",
+            "-c", "copy"
+        ]
+        for key, val in tags.items():
+            if key not in protected_keys:
+                cmd += ["-metadata", f"{key}={val}"]
+        cmd.append(str(temp_file))
+
+        run_ffmpeg_with_progress(file, cmd, f"Writing metadata to {temp_file}", f"Added metadata to {temp_file}")
+
+        if temp_file.exists():
+            path.unlink()
+            temp_file.rename(path)
+            print(f"  Successfully updated metadata in {path.name}\n")
+        else:
+            print("  Failed to update metadata.")
+
+
+
+def merge(args):
+    files = args.files or find_video_files()
+    if not files: return
+    listfile = Path("merge_list.txt")
+    with listfile.open("w") as f:
+        for file in files:
+            f.write(f"file '{Path(file).resolve()}'\n")
+    output = Path("merged_output.mp4")
+    cmd = ["ffmpeg", "-f", "concat", "-safe", "0", "-i", str(listfile), "-c", "copy", str(output)]
+    subprocess.run(cmd)
+    listfile.unlink()
+
+def show_info(subcommand=None):
+    if subcommand == "screencast":
+        infofile = SCREENCAST_INFO
+    else:
+        base = os.path.splitext(os.path.abspath(__file__))[0]
+        infofile = f"{base}.{subcommand}.info" if subcommand else f"{base}.info"
+    subprocess.run(["bash", "-c", f"source ~/syscripts/functions/scripting.sh && show_infofile \"{infofile}\""])
+    sys.exit(0)
+
+def interactive_menu():
+    print("\033[1;44m         🎬 VIDEO MANAGER - Tool for processing videos      \033[0m")
+    print(" ");
+    options = [
+        ("convert", "Convert videos to another format", "🔁"),
+        ("screencast", "Start screen recording", "📹"),
+        ("interpolate", "Increase video framerate", "🌀"),
+        ("trim", "Cut part of a video", "✂️ "),
+        ("compress", "Compress video file", "🗜️"),
+        ("gif", "Convert to animated GIF", "🖼️"),
+        ("extract-audio", "Extract audio from video", "🔊"),
+        ("metadata", "Show video metadata", "🏷️"),
+        ("merge", "Merge multiple videos", "🔗")
+    ]
+    for i, (cmd, desc, symb) in enumerate(options, start=1):
+        print(f"    [{i}] {symb} {cmd.ljust(16)} - {desc}")
+    print("    [0] 🚪 Exit")
+    print(" ")
+    choice = input("\033[1;33m     Select an action: \033[0m")
+    if choice == "0":
+        sys.exit(0)
+    try:
+        selected = options[int(choice)-1][0]
+        # Rufe das entsprechende Kommando direkt auf
+        if selected == "convert": convert(argparse.Namespace(files=[], format=None, preset=None, resolution=None, framerate=None))
+        elif selected == "screencast": screencast(argparse.Namespace())
+        elif selected == "interpolate": interpolate(argparse.Namespace(files=[], factor=None))
+        elif selected == "trim": trim(argparse.Namespace(files=[], start=None, duration=None))
+        elif selected == "compress": compress(argparse.Namespace(files=[], quality=None))
+        elif selected == "gif": gif(argparse.Namespace(files=[]))
+        elif selected == "extract-audio": extract_audio(argparse.Namespace(files=[]))
+        elif selected == "metadata": metadata(argparse.Namespace(files=[]))
+        elif selected == "merge": merge(argparse.Namespace(files=[]))
+        else: show_info()
+    except (ValueError, IndexError):
+        print("Invalid selection. Exiting.")
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(description="Video Manager CLI", usage="video <command> [<args>]", add_help=False)
+    parser.add_argument("--help", "-h", action="store_true", help="Show this help message and exit")
+    subparsers = parser.add_subparsers(dest="command")
+
+    convert_parser = subparsers.add_parser("convert")
+    convert_parser.add_argument("files", nargs="*")
+    convert_parser.add_argument("--format", "-f", choices=FORMATS)
+    convert_parser.add_argument("--preset", "-p", choices=PRESETS.keys())
+    convert_parser.add_argument("--resolution", "-r", choices=RESOLUTIONS)
+    convert_parser.add_argument("--framerate", "-fr", choices=FRAMERATES)
+
+    subparsers.add_parser("screencast")
+    interp_parser = subparsers.add_parser("interpolate")
+    interp_parser.add_argument("files", nargs="*")
+    interp_parser.add_argument("--factor")
+    trim_parser = subparsers.add_parser("trim")
+    trim_parser.add_argument("files", nargs="*")
+    trim_parser.add_argument("--start")
+    trim_parser.add_argument("--duration")
+    compress_parser = subparsers.add_parser("compress")
+    compress_parser.add_argument("files", nargs="*")
+    compress_parser.add_argument("--quality")
+    gif_parser = subparsers.add_parser("gif")
+    gif_parser.add_argument("files", nargs="*")
+    audio_parser = subparsers.add_parser("extract-audio")
+    audio_parser.add_argument("files", nargs="*")
+    meta_parser = subparsers.add_parser("metadata")
+    meta_parser.add_argument("files", nargs="*")
+    merge_parser = subparsers.add_parser("merge")
+    merge_parser.add_argument("files", nargs="*")
+
+    # 💡 Handle `--help` before parsing
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ["--help", "-h"]:
+            show_info()
+        elif len(sys.argv) > 2 and sys.argv[2] in ["--help", "-h"]:
+            show_info(sys.argv[1])
+
+    # 🔁 Parse args normally
+    args, unknown = parser.parse_known_args()
+
+    # 🔘 Interaktives Menü wenn kein Subcommand
+    if not args.command:
+        return interactive_menu()
+
+    # ▶️ Dispatch
+    if args.command == "convert": convert(args)
+    elif args.command == "screencast": screencast(args)
+    elif args.command == "interpolate": interpolate(args)
+    elif args.command == "trim": trim(args)
+    elif args.command == "compress": compress(args)
+    elif args.command == "gif": gif(args)
+    elif args.command == "extract-audio": extract_audio(args)
+    elif args.command == "metadata": metadata(args)
+    elif args.command == "merge": merge(args)
+    else: show_info()
+
+
+if __name__ == "__main__":
+    main()
+

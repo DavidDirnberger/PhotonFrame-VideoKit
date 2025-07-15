@@ -1,0 +1,44 @@
+##VIDEO MANAGER - compress
+
+#Usage:
+#--------------------------------------------
+video compress [files] [--quality QUALITY]
+
+#Quality Input:
+#--------------------------------------------------------
+    The compression level is specified as a number between 0 and 100:
+
+        100 → highest quality, least compression (CRF ≈ 18)
+
+        0 → lowest quality, maximum compression (CRF ≈ 30)
+
+    Internally mapped to ffmpeg's CRF (Constant Rate Factor) scale.
+
+#Output:
+#-------------------------------------------------------
+    Compressed file will be saved alongside original as: filename_compressed.mp4
+
+#Terminal Preview:
+#-----------------------------------------------------------------
+    If executed in a Kitty terminal, a visual comparison of a
+    preview frame (midpoint of the video) will be shown using kitty +kitten icat.
+    If not running in Kitty, preview is skipped automatically.
+
+#Dependencies:
+#-------------
+    ffmpeg
+
+    ffprobe (for duration detection)
+
+    kitty (optional, for image preview)
+
+#Notes:
+#-------------------------
+    This tool is designed to simplify video compression with intelligent defaults.
+
+    However, already highly compressed videos (e.g. YouTube downloads, screen captures, etc.)
+    may result in a compressed version that is larger than the original.
+    This is not a bug, but a result of how CRF and video encoding work:
+
+       Re-encoding without changing presets, codec or audio may increase overhead
+       For consistent size reduction, use uncompressed or lightly compressed input files.

@@ -1,0 +1,47 @@
+##VIDEO MANAGER – merge – Combine Videos, Audio and Subtitles
+
+This function enables flexible merging of:
+- multiple videos (matched resolution and FPS through preprocessing)
+- a video with external audio (e.g. microphone recording)
+- a video with external subtitle (burned or soft)
+
+# How it works
+1. **Preprocessing**: All videos are transcoded to a uniform format/FPS. Optional pauses and a starting black screen can be inserted.
+2. **Merging**: Uses the ffmpeg concat demuxer to combine all prepared files.
+
+# Arguments (Flags)
+#--------------------------------------------------------------
+# General
+- `--files`            		List of input files (optional, otherwise interactive selection)
+- `--output FILE`      		Output filename [.mp4 will be added if missing]
+
+# Merging multiple videos
+- `--pause TIME`       		Pause (black screen + silent audio) between clips (sec / MM:SS / HH:MM:SS)
+- `--offset TIME`      		Optional black screen at the very beginning (only for multi-video merge)
+- `--target-res`       		Target resolution: `no-scale` (default), `smallest`, `average`, `largest`
+   - `no-scale` keeps original sizes, padding with black bars as needed
+
+# Merging video + audio/subtitle (2 files)
+- `--offset TIME`      		Delay for audio or subtitle track (sec / MM:SS / HH:MM:SS)
+- `--burn-subtitle`    		If set, the subtitle is burned into the video
+- `--subtitle-name TXT`	Optional display name for soft subtitle (shown in VLC etc.)
+
+# Special behavior
+#----------------------------------------------------------------
+- Already processed files (video or pause) are cached and reused
+- Duplicate selections like `2,3,2` are supported and respected
+
+# Output
+#----------------------------------------------------------------
+- Final video will match the chosen resolution and merge all clips seamlessly
+- Temporary transcoded files are auto-deleted after processing
+
+# Examples
+#--------------------------------------------------
+video merge --files clip1.mp4 mic.wav --offset 0:01
+video merge --burn-subtitle --subtitle-name "German"
+video merge --target-res no-scale --pause 1:30
+
+#---
+Note: `-movflags +faststart` is set by default for better compatibility with web players and soft subtitles.
+
