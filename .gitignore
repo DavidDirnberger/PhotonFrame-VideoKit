@@ -12,4 +12,4 @@ __pycache__/
 *.mkv
 *.log
 *.env
-
+*.swp

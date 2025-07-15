@@ -1,10 +1,10 @@
 ## video-manager
 A tool for converting, editing, filtering, enhancing and recording videos.
 
-#General usage:
+# General usage:
 video <command> [options]
 
-#Available commands:
+# Available commands:
 convert         Convert videos to other formats (mp4, mkv, avi, etc.)
 compress        Reduce file size using CRF compression
 trim            Cut videos using start time and duration
@@ -16,12 +16,12 @@ extract         Extract audio,subtitle,frame or video from video
 gif             Convert video to animated GIF with optional meme text
 metadata        Show and edit metadata of video files
 
-#Passing Data
+# Passing Data
 You can use % as a wildcard for a placeholder of numbers
 video%.mp4 => {video1.mp4, video2.mp4, video034.mp4, ...}
 
-#Interactive use:
+# Interactive use:
 Typing only `video` will launch an interactive menu to guide you through these options.
 
-#Help:
+# Help:
 Use `video <command> --help` for specific info about each function.
