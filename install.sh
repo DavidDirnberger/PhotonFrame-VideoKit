@@ -16,8 +16,9 @@ DEFAULT_BASE="$HOME/syscripts/videoManager"
 read -erp "Installationsverzeichnis [$DEFAULT_BASE]: " INSTALL_DIR
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_BASE}"
 VENV_DIR="$INSTALL_DIR/venv"
+CONDA_DIR="${CONDA_DIR:-$INSTALL_DIR/miniconda}"
 
-ALIAS_LINE="alias $VIDEO_CMD=\"$VENV_DIR/bin/python $INSTALL_DIR/videoManager.py\""
+ALIAS_LINE="alias $VIDEO_CMD=\"$CONDA_DIR/envs/$ENV_NAME/bin/python $INSTALL_DIR/videoManager.py\""
 
 
 INSTALL_CUDA_TOOLKIT=false
@@ -50,14 +51,15 @@ if ! grep -qs "$ALIAS_LINE" "$HOME/.bashrc" "$HOME/.bash_aliases" 2>/dev/null; t
 fi
 
 # ───────────────────── Miniconda Installation prüfen ─────────────────────
+export PATH="$CONDA_DIR/bin:$PATH"
 if ! command -v conda &>/dev/null && ! command -v mamba &>/dev/null; then
   log "🔄 Conda nicht gefunden – installiere Miniconda lokal..."
   INSTALLER="Miniconda3-latest-Linux-x86_64.sh"
   URL="https://repo.anaconda.com/miniconda/$INSTALLER"
   curl -fsSL "$URL" -o "/tmp/$INSTALLER"
-  bash "/tmp/$INSTALLER" -b -p "$HOME/miniconda"
+  bash "/tmp/$INSTALLER" -b -p "$CONDA_DIR"
   rm "/tmp/$INSTALLER"
-  export PATH="$HOME/miniconda/bin:$PATH"
+  export PATH="$CONDA_DIR/bin:$PATH"
 fi
 # Prefer mamba if available
 CMD_INSTALL="conda"
@@ -68,6 +70,7 @@ fi
 # Initialize conda in script
 # shellcheck disable=SC1091
 source "$(conda info --base)/etc/profile.d/conda.sh"
+source "$CONDA_DIR/etc/profile.d/conda.sh"
 
 # ───────────────────── Create/Activate Env ───────────────────────────
 if ! conda env list | grep -qE "^${ENV_NAME}[[:space:]]"; then
@@ -110,7 +113,7 @@ python -m pip install -q -r "$RE_DIR/requirements.txt"
 python "$RE_DIR/scripts/download_pretrained_models.py" >/dev/null
 
 # ───────────────────── Alias einrichten ──────────────────────────────
-CONDA_PREFIX="$(conda info --base)/envs/$ENV_NAME"
+CONDA_PREFIX="$CONDA_DIR/envs/$ENV_NAME"
 ALIAS_LINE="alias $VIDEO_CMD='${CONDA_PREFIX}/bin/python $PWD/videoManager.py'"
 if ! grep -qxF "$ALIAS_LINE" ~/.bashrc ~/.zshrc 2>/dev/null; then
   echo "$ALIAS_LINE" >> ~/.bashrc
