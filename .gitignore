@@ -1,6 +1,6 @@
 # Verzeichnisse
-.vscode/
-duration_estimation/            # Slash = Verzeichnis rekursiv ignorieren
+.vscode/            # Slash = Verzeichnis rekursiv ignorieren
+duration_estimation/
 Real-ESRGAN/
 tmp/
 old/
