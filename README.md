@@ -53,6 +53,8 @@ Every command lives in its own module and has a dedicated infofile under `infofi
 - **Runtime**: Python 3.10.x
 - **Core tools**:
   - `ffmpeg` and `ffprobe` (required)
+- **Terminal (recommended)**:
+  - A modern terminal emulator that can display images (for inline previews and thumbnails), e.g. **kitty** or similar.
 - **Optional for AI features**:
   - CUDA-capable GPU (for PyTorch backends)
   - AI models (Real-ESRGAN / RealCUGAN, etc.) – handled by the project’s installer / model manager.
