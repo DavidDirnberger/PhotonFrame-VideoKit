@@ -1732,7 +1732,7 @@ conda_retry 24 install -y "${PKGS_BASE_2[@]}"
 
 if $INSTALL_AI; then
   # PyTorch + AI stack deps (torch pulls most of these, but we install them only when needed)
-  PKGS_AI_BASE=( "numpy<2" "typing-extensions" "packaging" "pyyaml" "fsspec" "filelock" "networkx" "sympy" "llvmlite" "lz4" )
+  PKGS_AI_BASE=( "numpy<2" "typing-extensions" "packaging" "pyyaml" "fsspec" "filelock" "networkx" "sympy" "llvmlite" "lz4" "requests" )
   conda_retry 24 install -y "${PKGS_AI_BASE[@]}"
 fi
 
