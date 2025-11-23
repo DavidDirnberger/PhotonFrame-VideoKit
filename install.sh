@@ -1859,10 +1859,21 @@ fi
 # ─────────────────────────── Diagnose core versions ─────────────────────────
 log "Checking Python/NumPy/OpenCV/ffmpeg..."
 python - <<'PY'
-import sys, numpy, cv2
+import importlib, sys
+
+def safe_ver(name: str) -> tuple[str, bool]:
+    try:
+        m = importlib.import_module(name)
+        return getattr(m, "__version__", "n/a"), True
+    except Exception:
+        return "n/a", False
+
+np_ver, np_ok = safe_ver("numpy")
+cv_ver, cv_ok = safe_ver("cv2")
+
 print("Python:", sys.version.split()[0])
-print("NumPy :", numpy.__version__)
-print("OpenCV:", getattr(cv2, "__version__", "n/a"))
+print("NumPy :", np_ver, "(missing)" if not np_ok else "")
+print("OpenCV:", cv_ver, "(missing)" if not cv_ok else "")
 PY
 ffmpeg -hide_banner -version | head -n 1
 
