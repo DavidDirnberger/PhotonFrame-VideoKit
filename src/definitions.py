@@ -8,6 +8,11 @@ from typing import Any, Dict, Final, List, Optional, Set, Tuple, TypedDict, Unio
 
 LOG_FILE = "LOG_DIR/PhotonFabric_VideoKit.log"
 
+# Projektbasis (VM_BASE vom Wrapper, sonst ein Verzeichnis über src/)
+PROJECT_ROOT = Path(
+    os.environ.get("VM_BASE", Path(__file__).resolve().parents[1])
+).resolve()
+
 # --- Gemeinsame Strukturen ----------------------------------------------------
 
 
@@ -147,8 +152,9 @@ CLEAR_LINE = "\033[2K"  # clear entire line
 ANSI_REGEX = re.compile(r"\x1b\[[0-9;]*m")  # strip colours for length calc
 TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TMP_DIR = Path(SCRIPT_DIR) / "tmp"
+# Kompatibilität: alter Name SCRIPT_DIR zeigt jetzt auf das Projekt-Root
+SCRIPT_DIR = PROJECT_ROOT
+TMP_DIR = PROJECT_ROOT / "tmp"
 
 LANG_ISO3 = {
     "de": "deu",

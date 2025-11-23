@@ -225,7 +225,9 @@ def resolve_realcugan_models_dir(
             return hit
 
         # 5) repo-root relativ zu diesem Modul
-        repo_root = Path(__file__).resolve().parents[1]
+        repo_root = Path(
+            os.environ.get("VM_BASE", Path(__file__).resolve().parents[1])
+        ).resolve()
         rr = repo_root / "realcugan-ncnn-vulkan"
         hit = _first_ok([rr / want, rr / "models" / want])
         if hit:

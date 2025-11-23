@@ -134,16 +134,21 @@ def interactive_menu(opts: List[OptionEntry]) -> None:
 
 
 def bootstrap(project_root: Path | None = None) -> ConfigManager:
+    if project_root is None:
+        # 1. Versuch: vom Launcher gesetztes VM_BASE verwenden
+        vm_base = os.environ.get("VM_BASE")
+        if vm_base:
+            project_root = Path(vm_base).resolve()
+        else:
+            # 2. Fallback: von src/videoManager.py ein Verzeichnis hoch
+            project_root = Path(__file__).resolve().parents[1]
+
     cm = ConfigManager(project_root=project_root)
     cm.load()
 
-    # Sprache aus Config (Inline-Kommentare entfernt dein get_str bereits)
     lang = cm.get_str("general", "language") or "en"
-
-    # Optional: Regionsteile wie de-AT, en_US robust kürzen
     lang = lang.strip().lower().replace("_", "-").split("-")[0]
-
-    set_lang(lang)  # wichtig: vor jeglicher Ausgabe
+    set_lang(lang)
     return cm
 
 
@@ -164,7 +169,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         finally:
             sys.exit(0)
 
-    cm = bootstrap(Path(__file__).parent)
+    cm = bootstrap()
     ai_enabled_cfg = cm.get_bool("ai", "enabled", fallback=True)
     ai_available = bool(ai_enabled_cfg)
     options = _options_for(ai_available)

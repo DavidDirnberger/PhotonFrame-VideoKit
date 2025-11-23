@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import os
 import shutil
 import subprocess
 import sys
@@ -503,8 +504,13 @@ def ai_enhance(args: AIEnhanceArgs | Any) -> None:
     mg.install_global_cancel_handlers()  # ESC/Strg+C → globaler Cancel
     print_log(f"FFmpeg: {_ffmpeg_path_and_version()}")
 
-    script_dir = Path(__file__).resolve().parent
-    esrgan_dir = (script_dir / "real-esrgan").resolve()
+    project_root = (
+        getattr(defin, "PROJECT_ROOT", None)
+        or Path(
+            os.environ.get("VM_BASE", Path(__file__).resolve().parents[1])
+        ).resolve()
+    )
+    esrgan_dir = (project_root / "real-esrgan").resolve()
     venv_python = Path(sys.executable)
 
     esr_script = esrgan_dir / "inference_realesrgan.py"
@@ -515,7 +521,7 @@ def ai_enhance(args: AIEnhanceArgs | Any) -> None:
 
     try:
         try:
-            TMP_ROOT = fs.select_tmp_root(script_dir)
+            TMP_ROOT = fs.select_tmp_root(project_root)
         except RuntimeError as e:
             co.print_error(str(e))
             return
@@ -523,9 +529,7 @@ def ai_enhance(args: AIEnhanceArgs | Any) -> None:
         co.print_info(_("ai_tmp_dir_using").format(dir=str(TMP_ROOT)))
 
         # ───────── Platz ─────────
-        ok_space, free_gb = fs.has_free_space(
-            TMP_ROOT := fs.select_tmp_root(Path(__file__).parent)
-        )
+        ok_space, free_gb = fs.has_free_space(TMP_ROOT)
         if not ok_space:
             co.print_error(_("ai_not_enough_space").format(need=5.0, free=free_gb))
             return

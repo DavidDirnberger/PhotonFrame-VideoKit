@@ -16,7 +16,7 @@ BASE="$(cd "$(dirname "$SELF")" && pwd)"
 # ── Feste Pfade deiner Installation (vom Installer gesetzt) ─────────────────
 CONDA_DIR="APP_PATH_PLACEHOLDER/miniconda"
 ENV_NAME="ENV_NAME_PLACEHOLDER"
-APP_PATH="APP_PATH_PLACEHOLDER/videoManager.py"
+APP_PATH="APP_PATH_PLACEHOLDER/src/videoManager.py"
 
 ENV_BIN="$CONDA_DIR/envs/$ENV_NAME/bin"
 ENV_LIB="$CONDA_DIR/envs/$ENV_NAME/lib"
@@ -106,7 +106,7 @@ export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-max_split_size_mb:256
 
 
 # Dein Projekt-Root für absolute/rel. Imports – genügt, .pth ist NICHT nötig
-export PYTHONPATH="$BASE:${PYTHONPATH:-}"
+export PYTHONPATH="$BASE/src:$BASE:${PYTHONPATH:-}"
 
 
 # ── Mini-Banner (nur bei Trace) ─────────────────────────────────────────────

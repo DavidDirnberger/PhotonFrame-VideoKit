@@ -1,9 +1,8 @@
-filelock
-fsspec
-jinja2
-networkx
-sympy
-typing-extensions
-numpy>=1.20,<2
-opencv-python<4.12
-ffmpeg-python
+argcomplete>=3.1,<4
+pillow
+psutil
+wcwidth
+
+# AI (aienhance) dependencies are installed via install.sh when enabled:
+# numpy<2
+# opencv-python-headless<4.12

@@ -72,6 +72,10 @@ def _impact_font_candidates() -> List[Path]:
     if env_dir:
         candidates.append(Path(env_dir).expanduser() / "impact.ttf")
 
+    vm_base = os.environ.get("VM_BASE")
+    if vm_base:
+        candidates.append(Path(vm_base) / "assets" / "impact.ttf")
+
     xdg_data = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
     candidates.append(xdg_data / "videoManager" / "fonts" / "impact.ttf")
     candidates.append(

@@ -180,7 +180,7 @@ def resolve_model_path(
     model_path = os.path.join("weights", model_name + ".pth")
     if os.path.isfile(model_path):
         return model_path
-    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+    ROOT_DIR = os.environ.get("VM_BASE") or str(Path(__file__).resolve().parents[1])
     for url in urls:
         model_path = load_file_from_url(
             url=url,

@@ -1571,7 +1571,6 @@ PY
 # ──────────────────────────────── Main flow ────────────────────────────────
 ask_language
 prompt_impact_opt_in
-ask_prefer_gpu
 
 # Choose install base
 DEFAULT_BASE=$(pwd)
@@ -1630,8 +1629,8 @@ ARCHIVE="$SCRIPT_DIR/src.tar.gz"
 #Create log location and set log
 LOG_DIR="$INSTALL_DIR/logs"
 mkdir -p "$LOG_DIR"
-if [ -f "$INSTALL_DIR/definitions.py" ]; then
-  sed -i "s|LOG_DIR|$LOG_DIR|g" "$INSTALL_DIR/definitions.py"
+if [ -f "$INSTALL_DIR/src/definitions.py" ]; then
+  sed -i "s|LOG_DIR|$LOG_DIR|g" "$INSTALL_DIR/src/definitions.py"
 else
   warn "definitions.py not found - skipping log dir patch."
 fi
@@ -1640,6 +1639,9 @@ fi
 INSTALL_AI=true
 ask_question "Install AI features (Real-ESRGAN, RealCUGAN, PyTorch, CUDA, ...)?" "y" || INSTALL_AI=false
 if $INSTALL_AI; then
+  # Nur relevant, wenn KI installiert wird: steuert Auswahl Torch/NCNN im Backend-Pick
+  ask_prefer_gpu
+
   warn "CodeFormer requires the NON-COMMERCIAL S-Lab License 1.0. Do not use it commercially."
   if ask_question "Install CodeFormer (face restoration, NON-COMMERCIAL S-Lab License 1.0)?" "n"; then
     INSTALL_CODEFORMER=true
@@ -1716,17 +1718,27 @@ unset PYTHONPATH || true
 log "Installing core packages (conda-forge, strict)..."
 "$CMD_INSTALL" info >/dev/null || err "Package runner '${CMD_INSTALL}' not functional."
 
-PKGS_BASE_1=( "pip<25" setuptools wheel "numpy<2" pillow requests psutil wcwidth jinja2 networkx sympy typing-extensions packaging pyyaml fsspec filelock kiwisolver llvmlite lz4 )
+PKGS_BASE_1=( "pip<25" setuptools wheel pillow psutil wcwidth )
 PKGS_BASE_2=( "tk>=8.6.13,<8.7" )
 conda_retry 24 install -y "${PKGS_BASE_1[@]}"
 conda_retry 24 install -y "${PKGS_BASE_2[@]}"
+
+if $INSTALL_AI; then
+  # PyTorch + AI stack deps (torch pulls most of these, but we install them only when needed)
+  PKGS_AI_BASE=( "numpy<2" "typing-extensions" "packaging" "pyyaml" "fsspec" "filelock" "networkx" "sympy" "llvmlite" "lz4" )
+  conda_retry 24 install -y "${PKGS_AI_BASE[@]}"
+fi
 
 # Terminal image preview utils (best effort)
 ensure_term_image_stack
 
 # OpenCV headless (pip; cached/offline capable)
 SITE_PKGS="$(get_site_packages)"
-venv_pip_install_into_env_from_index "$SITE_PKGS" "opencv-python-headless<4.12" "argcomplete>=3.1,<4"
+PIP_BASE_PKGS=( "argcomplete>=3.1,<4" )
+if $INSTALL_AI; then
+  PIP_BASE_PKGS+=("opencv-python-headless<4.12")
+fi
+venv_pip_install_into_env_from_index "$SITE_PKGS" "${PIP_BASE_PKGS[@]}"
 
 # ffmpeg via conda (fallback to system)
 if ! command -v ffmpeg >/dev/null 2>&1; then
@@ -1867,13 +1879,17 @@ write_config_ini "$VM_LANG" "$OS_NAME" "$GPU_ENABLED_CFG" "$GPU_BKND" "$AI_BACKE
 # ─────────────────────────── Runner & shell alias (aus src.tar.gz) ──────────
 RUNNER_SRC="$INSTALL_DIR/video"
 if [ -f "$RUNNER_SRC" ]; then
+  # Stelle sicher, dass wir eine frische Runner-Vorlage verwenden (Placeholders wiederherstellen)
+  if [ -f "$SCRIPT_DIR/video" ]; then
+    cp "$SCRIPT_DIR/video" "$RUNNER_SRC"
+  fi
   # Platzhalter ersetzen
   sed -i "s|ENV_NAME_PLACEHOLDER|$ENV_NAME|g" "$RUNNER_SRC"
   sed -i "s|APP_PATH_PLACEHOLDER|$INSTALL_DIR|g" "$RUNNER_SRC"
   chmod +x "$RUNNER_SRC" || true
   mkdir -p "$HOME/.local/bin"
   ln -sf "$RUNNER_SRC" "$HOME/.local/bin/$VIDEO_CMD"
-  echo "[install] Runner gefunden und verlinkt: $RUNNER_SRC -> ~/.local/bin/$VIDEO_CMD"
+  echo "[install] Runner aktualisiert: $RUNNER_SRC (env=$ENV_NAME) -> ~/.local/bin/$VIDEO_CMD"
 else
   warn "Kein Runner 'video' im Installationsverzeichnis gefunden - ich lasse die alte Wrapper-Generierung aus."
 fi

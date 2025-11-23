@@ -526,7 +526,9 @@ def _decide_gpu_usage(venv_python: Path, esr_script: Path) -> Tuple[bool, str]:
     cfg_raw: str = "auto"
     cfg_tri: Optional[bool] = None
     try:
-        proj_root = getattr(defin, "SCRIPT_DIR", None)
+        proj_root = getattr(defin, "PROJECT_ROOT", None) or getattr(
+            defin, "SCRIPT_DIR", None
+        )
         cm = ConfigManager(project_root=proj_root) if proj_root else ConfigManager()
         cm.load()
         cfg_raw = (
