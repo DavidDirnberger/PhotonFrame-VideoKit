@@ -1892,7 +1892,11 @@ RUNNER_SRC="$INSTALL_DIR/video"
 if [ -f "$RUNNER_SRC" ]; then
   # Stelle sicher, dass wir eine frische Runner-Vorlage verwenden (Placeholders wiederherstellen)
   if [ -f "$SCRIPT_DIR/video" ]; then
-    cp "$SCRIPT_DIR/video" "$RUNNER_SRC"
+    src_runner="$(realpath -m "$SCRIPT_DIR/video")"
+    dest_runner="$(realpath -m "$RUNNER_SRC")"
+    if [ "$src_runner" != "$dest_runner" ]; then
+      cp "$src_runner" "$dest_runner"
+    fi
   fi
   # Platzhalter ersetzen
   sed -i "s|ENV_NAME_PLACEHOLDER|$ENV_NAME|g" "$RUNNER_SRC"
