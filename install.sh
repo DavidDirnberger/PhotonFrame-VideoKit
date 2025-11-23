@@ -692,6 +692,10 @@ ensure_term_image_stack() {
     if command -v snap >/dev/null 2>&1; then
       if ! command -v viu >/dev/null 2>&1; then sudo snap install viu --classic || true; fi
     fi
+  elif command -v brew >/dev/null 2>&1; then
+    brew install chafa || true
+    # xdg-utils ist auf macOS optional; Brew bietet ein Paket, aber wir warnen nur bei Fehlschlag
+    brew install xdg-utils || warn "xdg-utils (optional) konnte nicht via Homebrew installiert werden."
   elif command -v pacman >/dev/null 2>&1; then sudo pacman -Sy --noconfirm chafa xdg-utils || true
   elif command -v dnf    >/dev/null 2>&1; then sudo dnf install -y chafa xdg-utils || true
   elif command -v zypper >/dev/null 2>&1; then sudo zypper --non-interactive in chafa xdg-utils || true
@@ -704,6 +708,9 @@ ensure_capture_stack() {
   if command -v apt-get >/dev/null; then
     sudo apt-get update -qq || true
     apt_install_safe v4l-utils alsa-utils pulseaudio-utils || true
+  elif command -v brew >/dev/null 2>&1; then
+    # macOS: v4l/alsa/pulseaudio sind nicht relevant; nur Hinweis ausgeben
+    warn "Capture stack (v4l/alsa/pulseaudio) wird auf macOS uebersprungen."
   elif command -v pacman >/dev/null; then sudo pacman -Sy --noconfirm v4l-utils alsa-utils pulseaudio || true
   elif command -v dnf    >/dev/null; then sudo dnf install -y v4l-utils alsa-utils pulseaudio-utils || true
   elif command -v zypper >/dev/null; then sudo zypper --non-interactive in v4l-utils alsa-utils pulseaudio-utils || true

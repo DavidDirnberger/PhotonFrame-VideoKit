@@ -49,14 +49,14 @@ Every command lives in its own module and has a dedicated infofile under `infofi
 
 ## 2. Requirements
 
-- **OS**: Primarily developed and tested on Linux.
+- **OS**: Linux (primary), macOS (VideoToolbox), Windows via **WSL2 + Ubuntu** (native Windows console not supported).
 - **Runtime**: Python 3.10.x
 - **Core tools**:
   - `ffmpeg` and `ffprobe` (required)
 - **Terminal (recommended)**:
-  - A modern terminal emulator that can display images (for inline previews and thumbnails), e.g. **kitty** or similar.
+  - A modern terminal emulator that can display images (for inline previews and thumbnails), e.g. **kitty** or similar. On macOS, iTerm2/kitty work well; on Windows use Windows Terminal inside WSL2.
 - **Optional for AI features**:
-  - CUDA-capable GPU (for PyTorch backends)
+  - CUDA-capable GPU (for PyTorch backends) or Apple Silicon/MPS on macOS
   - AI models (Real-ESRGAN / RealCUGAN, etc.) – handled by the project’s installer / model manager.
 
 See the repository’s `install.sh` for the exact, up-to-date dependencies and model setup.
@@ -95,6 +95,57 @@ The installer will:
 
 > The installer is designed to be robust on unstable connections
 > (resumable downloads, many retries, fallbacks, offline caches).
+
+### 3.3 Platform notes
+
+- **macOS**: Supported. Use Homebrew for `ffmpeg` (VideoToolbox hardware encoders are included in Homebrew builds) and `aria2`/`chafa`/`xdg-utils` if desired. The installer detects macOS, uses the macOS Miniconda installer, and will pick MPS for AI if available. Terminal previews work in iTerm2/kitty; VideoToolbox hardware encoders are exposed as `*_videotoolbox`.
+- **Windows (via WSL2)**: Recommended path. Install WSL2 + Ubuntu, ensure Windows Terminal is set to use WSL, then run `./install.sh` inside WSL. GPU acceleration in WSL requires recent drivers (for CUDA) and `wsl --update`. Native PowerShell/CMD is not supported by the Bash installer.
+
+### 3.4 macOS step-by-step
+
+```bash
+# 1) Homebrew + tools
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install git ffmpeg aria2 chafa xdg-utils
+
+# 2) Clone the project
+git clone https://github.com/DavidDirnberger/PhotonFabric-VideoKit.git
+cd PhotonFabric-VideoKit
+
+# 3) Run the installer (prompts for language, AI features, install path)
+chmod +x install.sh
+./install.sh
+
+# 4) After install, the launcher is ready:
+video -h
+```
+
+- Hardware encoders: VideoToolbox is included in Homebrew ffmpeg (`*_videotoolbox`).
+- AI: On Apple Silicon, AI will use MPS automatically if available.
+- Terminal preview: iTerm2 or kitty recommended.
+
+### 3.5 Windows via WSL2 step-by-step
+
+```powershell
+# 1) Install WSL2 + Ubuntu (PowerShell as admin)
+wsl --install -d Ubuntu
+wsl --update
+
+# 2) Switch Windows Terminal to WSL profile, then inside Ubuntu shell:
+sudo apt update && sudo apt install -y git
+git clone https://github.com/DavidDirnberger/PhotonFabric-VideoKit.git
+cd PhotonFabric-VideoKit
+
+# 3) Run the installer
+chmod +x install.sh
+./install.sh
+
+# 4) Launcher in WSL:
+video -h
+```
+
+- GPU in WSL: For CUDA you need recent NVIDIA drivers + `wsl --update`; MPS is not available.
+- Terminal preview: Windows Terminal renders chafa output correctly; inline image preview works as on Linux.
 
 ### 4. Basic Usage
 
