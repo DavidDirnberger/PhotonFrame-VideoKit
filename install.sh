@@ -186,9 +186,16 @@ apt_install_safe() {
 
 # ─────────────────────────── Networking / download ──────────────────────────
 ask_question() {
-  local prompt="$1" default="${2:-y}" reply
+  local prompt="$1" default="${2:-y}" reply display_default="$default"
+  # Sprache: Default-Buchstaben anpassen (y -> j)
+  if [[ "${VM_LANG:-en}" == "de" ]]; then
+    case "${default,,}" in
+      y|j) display_default="j" ;;
+      n)   display_default="n" ;;
+    esac
+  fi
   while true; do
-    echo -en "$GREEN$(loc "$prompt") $(loc_printf "[y/n] (default %s):" "$default") ${CEND}"
+    echo -en "$GREEN$(loc "$prompt") $(loc_printf "[y/n] (default %s):" "$display_default") ${CEND}"
     read -r reply || reply=""
     reply="${reply:-$default}"
     case "$reply" in [YyJj]*) return 0 ;; [Nn]*) return 1 ;; esac
@@ -1152,11 +1159,21 @@ install_pytorch_smart() {
   for combo in "${CANDIDATE_TORCH[@]}"; do
     set -- $combo; tver="$1"; vver="$2"; ctag="$3"
     if [[ "$GPU" != "true" && "$ctag" != "cpu" ]]; then continue; fi
-    if pip_download_and_offline_install_torch "$tver" "$vver" "$ctag"; then
-      torch_ok=true
+    if [[ "$ctag" == "cu128" ]]; then
+      # Avoid flaky cu128 pip links; prefer conda first
+      if conda_install_torch_combo "$tver" "$vver" "$ctag"; then
+        torch_ok=true
+      else
+        warn "Conda cu128 failed - trying pip (may be slow)..."
+        if pip_download_and_offline_install_torch "$tver" "$vver" "$ctag"; then torch_ok=true; fi
+      fi
     else
-      warn "pip offline install failed (tag ${ctag}) - trying conda fallback..."
-      if conda_install_torch_combo "$tver" "$vver" "$ctag"; then torch_ok=true; fi
+      if pip_download_and_offline_install_torch "$tver" "$vver" "$ctag"; then
+        torch_ok=true
+      else
+        warn "pip offline install failed (tag ${ctag}) - trying conda fallback..."
+        if conda_install_torch_combo "$tver" "$vver" "$ctag"; then torch_ok=true; fi
+      fi
     fi
     if $torch_ok; then
       log "PyTorch installed: torch=$tver, torchvision=$vver, tag=$ctag"
@@ -1173,6 +1190,7 @@ install_pytorch_smart() {
     fi
   done
 
+  # Optional cu128 nightly fallback (last resort)
   if ! $torch_ok && [[ -n "$GPU_CC_NUM" && "$GPU_CC_NUM" -ge 1200 ]]; then
     warn "Stable cu128 wheels not available? - trying nightly cu128."
     wait_for_net 999999 10

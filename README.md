@@ -657,21 +657,21 @@ video metadata film.mkv --delete-tag-comment --delete-tag-keywords
 
 ## 7. Contributing
 
-Contributions, bug reports and ideas are welcome!
+Contributions are very welcome – whether it's bug reports, ideas for improvements, or pull requests with code changes.
 
-report issues with:
+### Reporting issues
 
-the CLI behaviour
+If you run into problems, please open an issue on GitHub and include as much context as possible:
 
-ffmpeg compatibility quirks
+- Your OS and PhotonFrame - VideoKit version
+- The exact command you ran (e.g. `video convert ...`)
+- A short description of what you expected vs. what actually happened
+- Relevant console output or error messages
 
-AI model support / performance
+To make debugging easier, you can also attach **log files from the `logs/` folder in the project directory** (for example the most recent `logs/*.log` file).
+These logs contain detailed information about what happened internally and are very helpful for analysis.
 
-propose new presets and defaults
-
-help with documentation and translations
-
-Please check the existing issues and infofiles before opening a new ticket to keep the discussion focused.
+> Before sharing logs, please quickly scan them and remove anything you consider private (usernames, paths, filenames, etc.).
 
 ## 8. License
 
@@ -682,10 +682,12 @@ repositories and remain under their respective licenses, including but not
 limited to:
 
 - Real-ESRGAN (BSD 3-Clause)
+- Real-CUGAN (MIT, by bilibili)
 - BasicSR, GFPGAN (Apache-2.0)
 - facexlib (MIT)
 - CodeFormer (S-Lab Non-Commercial License 1.0 – **non-commercial use only**)
 - Microsoft Core Fonts – Impact (proprietary, Microsoft Core Fonts EULA)
 
+Models are not shipped with this repository. They are downloaded from their official sources, which are subject to their own licenses.
 See `THIRD_PARTY_LICENSES.md` for an overview and the upstream projects.
 See the LICENSE file in this repository for licensing terms.
