@@ -745,9 +745,6 @@ def enhance(args: Any) -> None:
             cmd_no_out = _build_vec_encode_cmd(path, vf_chain, preset_name="casual")
             cmd = autotune_final_cmd(path, cmd_no_out + [str(output)])
 
-            # co.print_debug("ffmpeg cmd",cmd=cmd)
-            # co.print_debug("output",output=output)
-            # subprocess.run(cmd)
             pw.run_ffmpeg_with_progress(
                 path.name,
                 cmd,
@@ -769,9 +766,6 @@ def enhance(args: Any) -> None:
             cmd_no_out = _build_vec_encode_cmd(path, vf_chain, preset_name="casual")
             cmd = autotune_final_cmd(path, cmd_no_out + [str(output)])
 
-            # co.print_debug("ffmpeg cmd",cmd=cmd)
-            # co.print_debug("output",output=output)
-            # subprocess.run(cmd)
             pw.run_ffmpeg_with_progress(
                 path.name,
                 cmd,

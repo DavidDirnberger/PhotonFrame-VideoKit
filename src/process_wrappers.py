@@ -367,12 +367,7 @@ def run_ffmpeg_with_progress(
     prog_lines_raw, prog_italic_idx = split_progress_template(
         progress_line, input_path, output_path
     )
-    hint_txt = (
-        _("cancel_hint")
-        if hasattr(_, "__call__")
-        and "cancel_hint" in getattr(defin, "MESSAGES", {}).get("de", {})
-        else "Abbrechen mit ESC • Strg+C/Strg+K"
-    )
+    hint_txt = _("cancel_hint")
     hint_line = f"{c.get('dim')}{hint_txt}{c.get('reset')}"
     reserve_lines = len(prog_lines_raw) + 2
     print("\n" * (reserve_lines - 1), end="", flush=True)

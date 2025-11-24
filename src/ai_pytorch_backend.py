@@ -1202,15 +1202,15 @@ def run_esrgan_per_frame_python(
 
                 # Toleranz: erlaubte Fehlframes (absolute + relative)
                 try:
-                    miss_abs = int(os.environ.get("AI_TTA_MISS_TOL_FRAMES", "3") or 0)
+                    miss_abs = int(os.environ.get("AI_TTA_MISS_TOL_FRAMES", "8") or 0)
                 except Exception:
-                    miss_abs = 3
+                    miss_abs = 8
                 try:
                     miss_rel = float(
-                        os.environ.get("AI_TTA_MISS_TOL_RATIO", "0.01") or 0.0
+                        os.environ.get("AI_TTA_MISS_TOL_RATIO", "0.02") or 0.0
                     )
                 except Exception:
-                    miss_rel = 0.01
+                    miss_rel = 0.02
                 miss_allow = max(miss_abs, int(round((miss_rel or 0.0) * total)))
                 missing = max(0, total - produced)
                 success = missing <= miss_allow

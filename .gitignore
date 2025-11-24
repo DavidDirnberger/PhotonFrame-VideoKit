@@ -46,3 +46,6 @@ output/
 .pipcache/
 .torchcache/
 .ncnncache/
+
+#debugging
+debuging/

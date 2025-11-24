@@ -2,7 +2,6 @@
 # -----------------------------------------------------------------------------
 # Bilder → Video
 # -----------------------------------------------------------------------------
-import subprocess
 import sys
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -667,10 +666,6 @@ def images_to_video(args):
     # 9) Ausführen
     total_frames = len(image_files)
     fps_hint = (1.0 / dur_each) if dur_each > 0 else None
-
-    co.print_debug("ffmpeg", cmd=cmd)
-
-    subprocess.run(cmd)
 
     pw.run_ffmpeg_with_progress(
         Path(image_files[0]).name,  # rein für die Anzeige (#ifilename)

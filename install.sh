@@ -1637,7 +1637,7 @@ ARCHIVE="$SCRIPT_DIR/src.tar.gz"
 LOG_DIR="$INSTALL_DIR/logs"
 mkdir -p "$LOG_DIR"
 if [ -f "$INSTALL_DIR/src/definitions.py" ]; then
-  sed -i "s|LOG_DIR|$LOG_DIR|g" "$INSTALL_DIR/src/definitions.py"
+  sed -i "s|LOG_DIRECTORY|$LOG_DIR|g" "$INSTALL_DIR/src/definitions.py"
 else
   warn "definitions.py not found - skipping log dir patch."
 fi
@@ -1725,7 +1725,7 @@ unset PYTHONPATH || true
 log "Installing core packages (conda-forge, strict)..."
 "$CMD_INSTALL" info >/dev/null || err "Package runner '${CMD_INSTALL}' not functional."
 
-PKGS_BASE_1=( "pip<25" setuptools wheel pillow psutil wcwidth )
+PKGS_BASE_1=( "pip<25" setuptools wheel pillow psutil wcwidth "argcomplete>=3.1,<4" )
 PKGS_BASE_2=( "tk>=8.6.13,<8.7" )
 conda_retry 24 install -y "${PKGS_BASE_1[@]}"
 conda_retry 24 install -y "${PKGS_BASE_2[@]}"
@@ -1921,6 +1921,11 @@ setup_argcomplete_hooks() {
   local BIN="$CONDA_PREFIX/bin"
   local REG="$BIN/register-python-argcomplete"
   local ACT="$BIN/activate-global-python-argcomplete"
+
+  if [ ! -x "$REG" ]; then
+    warn "register-python-argcomplete not found in $BIN – reinstalling argcomplete."
+    conda_retry 4 install -y "argcomplete>=3.1,<4" || true
+  fi
 
   # (Optional) Global hook - not strictly required
   if [ -x "$ACT" ]; then "$ACT" --user >/dev/null 2>&1 || true; fi

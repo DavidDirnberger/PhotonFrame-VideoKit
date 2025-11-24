@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import traceback
+import time
 
 # ========== Standardbibliothek =================================================
 from dataclasses import dataclass
@@ -471,6 +472,11 @@ def fuse_tta_pool_variants_to_updir(
     out_dirs = [str(v.out_dir) for v in variants]
     inv_ops_list = [v.inv_ops for v in variants]
     fuse_warnings: List[str] = []
+    missing_stems: List[str] = []
+    try:
+        fuse_retries = int(os.environ.get("AI_TTA_FUSE_RETRIES", "5") or 5)
+    except Exception:
+        fuse_retries = 5
 
     finished = 0
     ok_count = 0
@@ -485,6 +491,20 @@ def fuse_tta_pool_variants_to_updir(
                 var_outputs.append((cand, inv_ops))
             else:
                 miss += 1
+        # ggf. kurze Retry-Schleife: manchmal schreiben Prozesse noch
+        attempt = 0
+        while miss > 0 and attempt < max(0, fuse_retries):
+            time.sleep(0.2)
+            var_outputs = []
+            miss = 0
+            for out_dir, inv_ops in zip(out_dirs, inv_ops_list):
+                cand = Path(out_dir) / f"{stem}_out.png"
+                if cand.exists() and cand.stat().st_size > 0:
+                    var_outputs.append((cand, inv_ops))
+                else:
+                    miss += 1
+            attempt += 1
+
         if not var_outputs:
             print_log(f"[TTA-POOL] FUSE skip (no candidates) for {stem}")
             return False
@@ -497,6 +517,7 @@ def fuse_tta_pool_variants_to_updir(
                     }
                 )
             )
+            missing_stems.append(stem)
         return _fuse_tta_outputs_to_file(var_outputs, up_dir / f"{stem}_out.png")
 
     if procs == 1:
@@ -567,6 +588,14 @@ def fuse_tta_pool_variants_to_updir(
     if fuse_warnings:
         # Sammle und gib alle TTA-FUSE Hinweise einmal am Ende aus
         co.print_warning("\n".join(sorted(set(fuse_warnings))))
+        try:
+            debug_path = up_dir / "__tta_missing.txt"
+            debug_path.write_text(
+                "\n".join(sorted(set(missing_stems))), encoding="utf-8"
+            )
+            print_log(f"[TTA-POOL] missing variants list written to {debug_path}")
+        except Exception:
+            pass
 
     return ok_count
 
