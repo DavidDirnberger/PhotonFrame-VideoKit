@@ -100,7 +100,7 @@ loc_printf() {
 }
 
 log()  { echo -e "\e[32m[install]\e[0m $(loc "$*")"; }
-warn() { echo -e "\e[33m[install]\e[0m $(loc "$*")"; }
+warn() { echo -e "\e[33m[install]\e[0m $(loc "$*")" >&2; }
 err()  { echo -e "\e[31m[install]\e[0m $(loc "$*")" >&2; exit 1; }
 
 # ───────────────────────────── Language prompt (EN/DE) ──────────────────────
@@ -1764,6 +1764,9 @@ if ! command -v conda &>/dev/null; then
   export PATH="$CONDA_DIR/bin:$PATH"
 fi
 
+# Accept Anaconda ToS early to avoid repeated prompts (needs conda binary in PATH)
+conda_accept_tos
+
 # Safe activation
 if [ -f "$CONDA_DIR/etc/profile.d/conda.sh" ]; then
   # shellcheck disable=SC1091
@@ -1775,43 +1778,46 @@ else
   err "conda.sh not found after install (expected under $CONDA_DIR)."
 fi
 
-# Accept Anaconda ToS early to avoid repeated prompts
-conda_accept_tos
-
 # Use mamba if present
 if command -v mamba &>/dev/null; then CMD_INSTALL="mamba"; else CMD_INSTALL="conda"; fi
 export CONDA_SUBDIR="linux-64"
 
 ROOT_CONDARC="$CONDA_DIR/.condarc"
-INCLUDE_DEFAULTS="${VIDEO_ALLOW_ANACONDA_DEFAULTS:-0}"
-{
-  echo "channels:"
-  echo "  - conda-forge"
-  echo "  - pytorch"
-  if [[ "$INCLUDE_DEFAULTS" == "1" ]]; then
-    echo "  - defaults"
-  else
-    warn "Skipping 'defaults' channel to avoid Anaconda ToS prompts. Set VIDEO_ALLOW_ANACONDA_DEFAULTS=1 to re-enable."
-  fi
-  echo "default_channels:"
-  echo "  - conda-forge"
-  echo "  - pytorch"
-  echo "custom_multichannels:"
-  if [[ "$INCLUDE_DEFAULTS" == "1" ]]; then
-    echo "  defaults:"
-    echo "    - https://repo.anaconda.com/pkgs/main"
-    echo "    - https://repo.anaconda.com/pkgs/r"
-  else
-    echo "  defaults: []"
-  fi
-  echo "channel_priority: strict"
-  echo "add_pip_as_python_dependency: false"
-} > "$ROOT_CONDARC"
+if [[ "${VIDEO_ALLOW_ANACONDA_DEFAULTS:-0}" == "1" ]]; then
+  cat > "$ROOT_CONDARC" <<'YAML'
+channels:
+  - conda-forge
+  - pytorch
+  - defaults
+channel_priority: strict
+add_pip_as_python_dependency: false
+default_channels:
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+custom_multichannels:
+  defaults:
+    - https://repo.anaconda.com/pkgs/main
+    - https://repo.anaconda.com/pkgs/r
+YAML
+else
+  cat > "$ROOT_CONDARC" <<'YAML'
+channels:
+  - conda-forge
+  - pytorch
+channel_priority: strict
+add_pip_as_python_dependency: false
+default_channels: []
+custom_multichannels:
+  defaults: []
+YAML
+  warn "Skipping 'defaults' channel to avoid Anaconda ToS prompts. Set VIDEO_ALLOW_ANACONDA_DEFAULTS=1 to re-enable."
+fi
 export CONDARC="$ROOT_CONDARC"
 export CONDA_HTTP_TIMEOUT=60
 export CONDA_REMOTE_CONNECT_TIMEOUT_SECS=30
 export CONDA_REMOTE_READ_TIMEOUT_SECS=60
 log "Root condarc set (strict), timeouts tuned."
+conda_accept_tos
 conda config --env --set channel_priority strict || true
 conda clean --index-cache -y || true
 rm -f "$CONDA_PREFIX/conda-meta/pinned" 2>/dev/null || true
