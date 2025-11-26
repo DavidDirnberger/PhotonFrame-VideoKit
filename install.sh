@@ -268,6 +268,23 @@ http_ok() {
   [[ "$code" =~ ^(20[0-9]|30[0-9])$ ]]
 }
 
+conda_accept_tos() {
+  # Accept Anaconda repo ToS non-interactively (newer conda requires this)
+  if conda help tos >/dev/null 2>&1; then
+    local channels=(
+      "https://repo.anaconda.com/pkgs/main"
+      "https://repo.anaconda.com/pkgs/r"
+    )
+    for ch in "${channels[@]}"; do
+      if conda tos accept --yes --override-channels --channel "$ch" >/dev/null 2>&1; then
+        log "Accepted Anaconda ToS for $ch."
+      else
+        warn "Could not auto-accept Anaconda ToS for $ch. If installs fail, run: conda tos accept --override-channels --channel \"$ch\""
+      fi
+    done
+  fi
+}
+
 
 ensure_aria2c() {
   if ! command -v aria2c &>/dev/null; then
@@ -1776,6 +1793,7 @@ export CONDA_HTTP_TIMEOUT=60
 export CONDA_REMOTE_CONNECT_TIMEOUT_SECS=30
 export CONDA_REMOTE_READ_TIMEOUT_SECS=60
 log "Root condarc set (strict), timeouts tuned."
+conda_accept_tos
 conda config --env --set channel_priority strict || true
 conda clean --index-cache -y || true
 rm -f "$CONDA_PREFIX/conda-meta/pinned" 2>/dev/null || true
