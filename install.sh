@@ -1775,6 +1775,9 @@ else
   err "conda.sh not found after install (expected under $CONDA_DIR)."
 fi
 
+# Accept Anaconda ToS early to avoid repeated prompts
+conda_accept_tos
+
 # Use mamba if present
 if command -v mamba &>/dev/null; then CMD_INSTALL="mamba"; else CMD_INSTALL="conda"; fi
 export CONDA_SUBDIR="linux-64"
@@ -1790,6 +1793,17 @@ INCLUDE_DEFAULTS="${VIDEO_ALLOW_ANACONDA_DEFAULTS:-0}"
   else
     warn "Skipping 'defaults' channel to avoid Anaconda ToS prompts. Set VIDEO_ALLOW_ANACONDA_DEFAULTS=1 to re-enable."
   fi
+  echo "default_channels:"
+  echo "  - conda-forge"
+  echo "  - pytorch"
+  echo "custom_multichannels:"
+  if [[ "$INCLUDE_DEFAULTS" == "1" ]]; then
+    echo "  defaults:"
+    echo "    - https://repo.anaconda.com/pkgs/main"
+    echo "    - https://repo.anaconda.com/pkgs/r"
+  else
+    echo "  defaults: []"
+  fi
   echo "channel_priority: strict"
   echo "add_pip_as_python_dependency: false"
 } > "$ROOT_CONDARC"
@@ -1798,7 +1812,6 @@ export CONDA_HTTP_TIMEOUT=60
 export CONDA_REMOTE_CONNECT_TIMEOUT_SECS=30
 export CONDA_REMOTE_READ_TIMEOUT_SECS=60
 log "Root condarc set (strict), timeouts tuned."
-conda_accept_tos
 conda config --env --set channel_priority strict || true
 conda clean --index-cache -y || true
 rm -f "$CONDA_PREFIX/conda-meta/pinned" 2>/dev/null || true
