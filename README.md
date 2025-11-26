@@ -103,7 +103,29 @@ The installer will:
 - **macOS**: Supported. Use Homebrew for `ffmpeg` (VideoToolbox hardware encoders are included in Homebrew builds) and `aria2`/`chafa`/`xdg-utils` if desired. The installer detects macOS, uses the macOS Miniconda installer, and will pick MPS for AI if available. Terminal previews work in iTerm2/kitty; VideoToolbox hardware encoders are exposed as `*_videotoolbox`.
 - **Windows (via WSL2)**: Recommended path. Install WSL2 + Ubuntu, ensure Windows Terminal is set to use WSL, then run `./install.sh` inside WSL. GPU acceleration in WSL requires recent drivers (for CUDA) and `wsl --update`. Native PowerShell/CMD is not supported by the Bash installer.
 
-### 3.4 macOS step-by-step
+### 3.4 Linux step-by-step
+
+```bash
+# 1) Install git (if missing) + recommended tools
+sudo apt update
+sudo apt install -y git ffmpeg aria2 chafa xdg-utils
+
+# 2) Clone the project
+git clone https://github.com/DavidDirnberger/PhotonFrame-VideoKit.git
+cd PhotonFrame-VideoKit
+
+# 3) Run the installer (prompts for language, AI features, install path)
+chmod +x install.sh
+./install.sh
+
+# 4) After install, the launcher is ready:
+video -h
+```
+
+- Hardware encoders: ffmpeg from your distro or a newer build if needed.
+- Terminal preview: kitty/wezterm recommended for inline images; chafa/viu work in most terminals.
+
+### 3.5 macOS step-by-step
 
 ```bash
 # 1) Homebrew + tools
@@ -126,28 +148,37 @@ video -h
 - AI: On Apple Silicon, AI will use MPS automatically if available.
 - Terminal preview: iTerm2 or kitty recommended.
 
-### 3.5 Windows via WSL2 step-by-step
+### 3.6 Windows via WSL2 (with WezTerm recommended) step-by-step
+
+We strongly recommend **WezTerm** for Windows users: it renders inline previews (Kitty protocol) reliably and gives you full functionality.
 
 ```powershell
 # 1) Install WSL2 + Ubuntu (PowerShell as admin)
 wsl --install -d Ubuntu
 wsl --update
 
-# 2) Switch Windows Terminal to WSL profile, then inside Ubuntu shell:
+# 2) Install WezTerm (PowerShell)
+winget install wez.wezterm
+
+# 3) Launch WezTerm and start your Ubuntu/WSL shell
+#    - In WezTerm: use the drop-down (chevron) and pick your Ubuntu profile,
+#      or run "wsl" to enter the default WSL distro.
+
+# 4) Inside Ubuntu (WezTerm tab): install git and clone
 sudo apt update && sudo apt install -y git
 git clone https://github.com/DavidDirnberger/PhotonFrame-VideoKit.git
 cd PhotonFrame-VideoKit
 
-# 3) Run the installer
+# 5) Run the installer
 chmod +x install.sh
 ./install.sh
 
-# 4) Launcher in WSL:
+# 6) Launcher in WSL:
 video -h
 ```
 
 - GPU in WSL: For CUDA you need recent NVIDIA drivers + `wsl --update`; MPS is not available.
-- Terminal preview: Windows Terminal renders chafa output correctly; inline image preview works as on Linux.
+- Terminal preview: **WezTerm recommended** for inline images and full feature coverage; Windows Terminal/chafa works but with reduced preview capability.
 
 ### 4. Basic Usage
 

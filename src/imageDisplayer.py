@@ -9,6 +9,7 @@ import sys
 from typing import Any, Callable, Optional, Tuple
 
 import consoleOutput as co  # optionales Projekt-Logging
+from i18n import _
 from loghandler import print_log
 
 try:
@@ -119,7 +120,7 @@ class ImageDisplayer:
             else:
                 subprocess.run(["xdg-open", path], check=False)
         except Exception as e:
-            print(f"[preview skipped] external viewer failed: {e}")
+            print(_("preview_external_failed").format(err=e))
 
     def _maybe_resize(self, image_path: str) -> str:
         """Optional: Bild verkleinern, wenn > max_size (wie früher)."""
@@ -139,7 +140,7 @@ class ImageDisplayer:
                     img.save(out, "PNG")
                     return out
         except Exception as e:
-            print(f"[preview skipped] resize failed: {e}")
+            print(_("preview_resize_failed").format(err=e))
         return image_path
 
     # ───────────── Kitty-Anzeigen: Plain icat (wie alte Version) ─────────────
@@ -186,7 +187,7 @@ class ImageDisplayer:
         if image_id is None:
             image_id = self.image_id
         if not sys.stdout.isatty():
-            print("[preview skipped] stdout is not a TTY (no terminal).")
+            print(_("preview_stdout_not_tty"))
             return
 
         img_path = self._maybe_resize(image_path)
@@ -194,7 +195,7 @@ class ImageDisplayer:
             with open(img_path, "rb") as fh:
                 b64 = base64.b64encode(fh.read()).decode("ascii")
         except Exception as e:
-            print(f"[preview skipped] read failed: {e}")
+            print(_("preview_read_failed").format(err=e))
             return
 
         write: Callable[[str], int] = sys.stdout.write
@@ -240,19 +241,25 @@ class ImageDisplayer:
             )
             sys.stdout.flush()
         except Exception as e:
-            print(f"[preview skipped] iTerm2 failed: {e}")
+            print(_("preview_iterm_failed").format(err=e))
 
     def _show_chafa(self, path: str) -> None:
         cols = os.environ.get("VIDEO_IMG_COLS", "80")
         rows = os.environ.get("VIDEO_IMG_ROWS", "24")
         try:
+            cmd = [
+                "chafa",
+                f"--size={cols}x{rows}",
+                "--symbols=block",  # volle Blockzeichen, weniger „Rauschen“
+                "--color-space=full",  # volle 24-bit Farbpalette, falls unterstützt
+            ]
             subprocess.call(
-                ["chafa", f"--size={cols}x{rows}", path],
+                cmd + [path],
                 stdout=sys.stdout,
                 stderr=subprocess.DEVNULL,
             )
         except Exception as e:
-            print(f"[preview skipped] chafa failed: {e}")
+            print(_("preview_chafa_failed").format(err=e))
 
     def _show_viu(self, path: str) -> None:
         cols = os.environ.get("VIDEO_IMG_COLS", "80")
@@ -264,7 +271,7 @@ class ImageDisplayer:
                 stderr=subprocess.DEVNULL,
             )
         except Exception as e:
-            print(f"[preview skipped] viu failed: {e}")
+            print(_("preview_viu_failed").format(err=e))
 
     # ───────────── Public API ─────────────
     def is_image_terminal(self) -> bool:
@@ -297,7 +304,7 @@ class ImageDisplayer:
             self._show_viu(path)
             return
 
-        print("[i] Kein grafikfähiges Terminal erkannt – öffne extern.")
+        print(_("preview_open_external"))
         self._open_external(path)
 
     def delete_all_kitty_images(self) -> None:
