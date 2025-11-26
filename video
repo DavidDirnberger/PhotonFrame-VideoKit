@@ -14,9 +14,24 @@ if SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null)"; then :; else SELF="${B
 BASE="$(cd "$(dirname "$SELF")" && pwd)"
 
 # ── Feste Pfade deiner Installation (vom Installer gesetzt) ─────────────────
-CONDA_DIR="APP_PATH_PLACEHOLDER/miniconda"
+CONDA_DIR_DEFAULT="CONDA_DIR_PLACEHOLDER"
+CONDA_DIR="$CONDA_DIR_DEFAULT"
 ENV_NAME="ENV_NAME_PLACEHOLDER"
 APP_PATH="APP_PATH_PLACEHOLDER/src/videoManager.py"
+
+if [[ -n "${VIDEO_CONDA_DIR:-}" ]]; then
+  CONDA_DIR="$VIDEO_CONDA_DIR"
+fi
+
+# auto-detect fallback Conda dirs if the configured one is missing
+if [[ ! -x "$CONDA_DIR/envs/$ENV_NAME/bin/python" ]]; then
+  for alt in "$HOME/.photonframe_conda/miniconda" "$HOME/syscripts/PhotonFrame-VideoKit/miniconda" "$HOME/PhotonFrame-VideoKit/miniconda"; do
+    if [[ -x "$alt/envs/$ENV_NAME/bin/python" ]]; then
+      CONDA_DIR="$alt"
+      break
+    fi
+  done
+fi
 
 ENV_BIN="$CONDA_DIR/envs/$ENV_NAME/bin"
 ENV_LIB="$CONDA_DIR/envs/$ENV_NAME/lib"

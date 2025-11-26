@@ -2018,6 +2018,7 @@ if [ -f "$RUNNER_SRC" ]; then
   # Platzhalter ersetzen
   sed -i "s|ENV_NAME_PLACEHOLDER|$ENV_NAME|g" "$RUNNER_SRC"
   sed -i "s|APP_PATH_PLACEHOLDER|$INSTALL_DIR|g" "$RUNNER_SRC"
+  sed -i "s|CONDA_DIR_PLACEHOLDER|$CONDA_DIR|g" "$RUNNER_SRC"
   chmod +x "$RUNNER_SRC" || true
   mkdir -p "$HOME/.local/bin"
   ln -sf "$RUNNER_SRC" "$HOME/.local/bin/$VIDEO_CMD"
