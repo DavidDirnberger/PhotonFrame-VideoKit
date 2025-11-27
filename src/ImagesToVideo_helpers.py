@@ -539,7 +539,7 @@ def parse_total_duration_to_seconds(s: str) -> float:
 
 
 def parse_interactive_fps_dur_total(
-    user_raw: str,
+    user_raw: str, *, prefer_plain_number_as_fps: bool = False
 ) -> Tuple[str, Optional[str], Optional[float], Optional[float]]:
     """
     Rückgabe: (mode, fps_rational, dur_per_frame_sec, total_sec)
@@ -549,7 +549,7 @@ def parse_interactive_fps_dur_total(
       1) "<zahl>(fps|fp|f)"     → FPS (CFR)
       2) "<zahl><einheit>"      → Zeit/Bild (DUR)  [Einheit ∈ ns, ms, s, m, h]
       3) "hh:mm:ss" / "mm:ss"   → Gesamtdauer (TOTAL)
-      4) reine Zahl             → Gesamtdauer (TOTAL)
+      4) reine Zahl             → Gesamtdauer (TOTAL), außer prefer_plain_number_as_fps=True → FPS
       5) Bruch (z.B. 24000/1001)→ FPS (CFR)
       6) Fallback               → 25 fps
     """
@@ -591,9 +591,11 @@ def parse_interactive_fps_dur_total(
         except Exception:
             pass  # weiter prüfen
 
-    # 4) reine Zahl → Gesamtdauer (Sekunden)
+    # 4) reine Zahl → Gesamtdauer (Sekunden) oder FPS (wenn bevorzugt)
     if _NUM_RE.match(low):
         try:
+            if prefer_plain_number_as_fps:
+                return ("fps", low, None, None)
             return ("total", None, None, max(0.0, float(low)))
         except Exception:
             pass

@@ -10,6 +10,7 @@ die(){ echo -e "\e[31m[video]\e[0m $*" >&2; exit 1; }
 note(){ echo -e "\e[36m[video]\e[0m $*"; }
 
 # Resolve self & base (fallback ohne readlink -f)
+ORIG_ARGS=("$@")
 if SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null)"; then :; else SELF="${BASH_SOURCE[0]}"; fi
 BASE="$(cd "$(dirname "$SELF")" && pwd)"
 
@@ -35,6 +36,26 @@ fi
 
 ENV_BIN="$CONDA_DIR/envs/$ENV_NAME/bin"
 ENV_LIB="$CONDA_DIR/envs/$ENV_NAME/lib"
+
+ensure_writable_or_prompt() {
+  local dir="$1" tmp="$dir/.video_writable_test.$$"
+  if (umask 022; touch "$tmp" 2>/dev/null && rm -f "$tmp" 2>/dev/null); then
+    return 0
+  fi
+  echo -e "\e[33m[video]\e[0m Directory not writable: $dir" >&2
+  echo -e "\e[33m[video]\e[0m If you are on Windows/WSL, move the project to the Linux filesystem (e.g. /home) or adjust permissions." >&2
+  if command -v sudo >/dev/null 2>&1 && [[ "$EUID" -ne 0 ]]; then
+    read -r -p "[video] Retry by elevating with sudo? [y/N]: " ans
+    case "${ans,,}" in
+      y|j)
+        exec sudo --preserve-env=VIDEO_CONDA_DIR,ENV_NAME,VM_TRACE,ESRGAN_DEFAULT_MODEL_PATH,ESRGAN_DEFAULT_MODEL_NAME "$0" "${ORIG_ARGS[@]}"
+        ;;
+    esac
+  fi
+  exit 1
+}
+
+ensure_writable_or_prompt "$PWD"
 
 # --- argcomplete fast-path: keine Ausgaben, nur Python starten ---------------
 if [[ -n "${_ARGCOMPLETE:-}" ]]; then

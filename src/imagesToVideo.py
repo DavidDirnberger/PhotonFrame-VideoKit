@@ -403,7 +403,9 @@ def images_to_video(args):
             # answer liefert (is_time, input_value), aber wir parsen selbst nach den neuen Regeln:
             is_time, raw_value = answer
             mode, fps_rational, dur_per_frame, total_seconds = (
-                itvh.parse_interactive_fps_dur_total(str(raw_value))
+                itvh.parse_interactive_fps_dur_total(
+                    str(raw_value), prefer_plain_number_as_fps=True
+                )
             )
 
             enforce_cfr = False
