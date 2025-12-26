@@ -1539,6 +1539,40 @@ def normalize_worker_profile_name(p: Optional[str]) -> Optional[str]:
     return aliases.get(s, s)
 
 
+def classify_model_family(model: Optional[str]) -> str:
+    """
+    Grobe Klassifikation der Modell-Familie für Worker-Heuristik.
+    Gibt kurze Tokens zurück:
+      - 'realcugan'
+      - 'anime_video'       (realesr-animevideov3)
+      - 'general_x4v3'      (realesr-general-x4v3)
+      - 'x4plus_anime'      (RealESRGAN_x4plus_anime_6B)
+      - 'x4plus'            (RealESRGAN_x4plus)
+      - 'x2plus'            (RealESRGAN_x2plus)
+      - 'other_heavy'       (BSRGAN, LSDIR etc.)
+      - 'other' / 'unknown'
+    """
+    m = (model or "").strip().lower().replace("-", "_")
+    if not m:
+        return "unknown"
+
+    if "realcugan" in m:
+        return "realcugan"
+    if "animevideov3" in m:
+        return "anime_video"
+    if "general_x4v3" in m:
+        return "general_x4v3"
+    if "x4plus_anime" in m or ("x4plus" in m and "anime" in m):
+        return "x4plus_anime"
+    if "x4plus" in m:
+        return "x4plus"
+    if "x2plus" in m:
+        return "x2plus"
+    if "bsrgan" in m or "lsdir" in m:
+        return "other_heavy"
+    return "other"
+
+
 def _model_worker_bias(model: str) -> int:
     """
     Worker-Bias je nach Modellfamilie:
@@ -1573,141 +1607,276 @@ def suggest_parallel_workers(
     model: str,
     face_enhance: Optional[bool] = False,
     user_profile: Optional[str] = None,
+    backend: str = "pytorch",
+    cpu_logical: Optional[int] = None,
 ) -> int:
     """
-    Schlägt einen sinnvollen Worker-Wert inkl. Profile vor:
-      - no_parallelisation → 1
-      - minimal            → 2
-      - medium             → ≈65% des Basiswerts (>=2, <=Basis)
-      - auto               → Basis * (1 - Headroom)
-      - max                → konservativ erhöht, VRAM-Kappen
+    Schlägt eine Worker-Zahl für den Pool vor, abhängig von:
+      - vram_mb:      GPU-VRAM in MB
+      - tile_size:    Tile-Größe (0 = Full Frame)
+      - prefer_fp32:  FP32-Zwang (mehr VRAM-Verbrauch)
+      - total_frames: Anzahl Frames im Chunk
+      - input_megapixels: W*H/1e6 der Eingangsframes
+      - scale:        Upscale-Faktor
+      - model:        Modellname (RealESRGAN_x4plus, realesr-animevideov3, realcugan-…)
+      - face_enhance: True → etwas konservativer
+      - user_profile: None/'auto'/'minimal'/'medium'/'max'
+      - backend:      'pytorch' oder 'ncnn'
+      - cpu_logical:  logische CPU-Kerne (Default: os.cpu_count())
+
+    Beachtet Env-Overrides:
+      - AI_WORKERS       → harter Override (fixe Zahl)
+      - AI_MIN_WORKERS   → untere Klammer
+      - AI_MAX_WORKERS   → obere Klammer
+      - AI_AUTO_HEADROOM → Headroom-Faktor für Profil 'auto' (0.0–0.5, Default 0.2)
     """
-    # Hard-Override via Env
-    if os.environ.get("AI_WORKERS"):
+    # 0) Harter Env-Override
+    env_workers = os.environ.get("AI_WORKERS")
+    if env_workers:
         try:
-            return max(1, int(os.environ["AI_WORKERS"]))
+            return max(1, int(env_workers))
         except Exception:
             pass
 
+    env_min_workers = _env_int("AI_MIN_WORKERS", 0)
+    env_max_workers = _env_int("AI_MAX_WORKERS", 0)
+
     prof = normalize_worker_profile_name(user_profile)
 
-    # feste Profile
+    # explizit seriell
     if prof == "no_parallelisation":
         return 1
-    if prof == "minimal":
-        return 3 if total_frames >= 20 else 2
 
-    # 0) Modell-Minimum für stabilen Pool (x4plus braucht ≥2)
-    m_norm = (model or "").strip().lower().replace("-", "_")
-    model_min = 3 if m_norm == "realesrgan_x4plus" else 2
+    # CPU-Fallback
+    if cpu_logical is None:
+        try:
+            cpu_logical = os.cpu_count() or 1
+        except Exception:
+            cpu_logical = 1
 
-    # 1) VRAM-basierter Basiswert (etwas aggressiver)
-    if vram_mb >= 32768:
-        base = 18
-    elif vram_mb >= 24576:
-        base = 14
-    elif vram_mb >= 16384:
-        base = 10
-    elif vram_mb >= 12288:
-        base = 6
-    elif vram_mb >= 8192:
-        base = 5
+    vram_mb = max(0, int(vram_mb))
+    total_frames = max(0, int(total_frames))
+    scale = max(1, int(scale))
+    mp = max(0.01, float(input_megapixels) if input_megapixels is not None else 1.0)
+
+    family = classify_model_family(model)
+    backend_norm = (backend or "pytorch").strip().lower()
+
+    # 1) VRAM-Tier
+    if vram_mb <= 0:
+        tier = 0
+    elif vram_mb <= 4096:
+        tier = 1
+    elif vram_mb <= 6144:
+        tier = 2
+    elif vram_mb <= 8192:
+        tier = 3
+    elif vram_mb <= 12288:
+        tier = 4
+    elif vram_mb <= 16384:
+        tier = 5
+    elif vram_mb <= 24576:
+        tier = 6
     else:
-        base = 3
+        tier = 7
 
-    # 2) FP32 kostet VRAM → drosseln (bei sehr viel VRAM milder)
-    if prefer_fp32:
-        if vram_mb < 16384:
-            base -= 1
-        if int(tile_size or 0) == 0 and vram_mb < 24576:
-            base -= 1
+    # 2) Modell-/Backend-basierter Maximalwert (vor Feintuning)
+    base_max = 2
 
-    # 3) Tile=0 (Full Frame) → drosseln bei moderatem VRAM
-    if int(tile_size or 0) == 0 and vram_mb < 12288:
-        base -= 1
+    if backend_norm == "pytorch":
+        # RealESRGAN x4plus / x4plus_anime: VRAM-heftig → bewusst sehr konservativ
+        if family in {"x4plus", "x4plus_anime"}:
+            if tier <= 5:  # <= 16 GB
+                base_max = 4
+            elif tier <= 6:  # ~24 GB
+                base_max = 5
+            else:  # >= 32 GB
+                base_max = 6
 
-    # 4) Content-Schwere: MP * scale^2
-    try:
-        heavy = float(max(0.0, input_megapixels)) * float(max(1, int(scale))) ** 2
-    except Exception:
-        heavy = 0.0
+        # animevideov3: sehr parallelisierbar laut Benchmark
+        elif family in {"anime_video"}:
+            if tier <= 1:
+                base_max = 5
+            elif tier <= 3:
+                base_max = 7
+            elif tier <= 5:
+                base_max = 9
+            else:
+                base_max = 11
 
-    if heavy >= 40.0 and base > 3:
-        base -= 3
-    elif heavy >= 25.0 and base > 2:
-        base -= 2
-    elif heavy <= 2.5 and base < 12:
-        base += 1
-    elif heavy <= 1.2 and base < 12:
-        base += 1
+        # general_x4v3 / x2plus: mittlere Aggressivität
+        elif family in {"x2plus", "general_x4v3"}:
+            if tier <= 1:
+                base_max = 5
+            elif tier <= 3:
+                base_max = 7
+            elif tier <= 5:
+                base_max = 9
+            else:
+                base_max = 11
 
-    # 5) Modell-Bias + leichtes Plus für x4plus
-    base += _model_worker_bias(model)
-    if m_norm == "realesrgan_x4plus":
-        base += 1
+        # Rest: „normale“ Modelle
+        else:
+            if tier <= 1:
+                base_max = 4
+            elif tier <= 3:
+                base_max = 5
+            elif tier <= 5:
+                base_max = 7
+            else:
+                base_max = 9
 
+    elif backend_norm == "ncnn":
+        # RealCUGAN-ncnn: darf sehr viele Worker haben (siehe deine PowerRig-Benchmarks)
+        if family == "realcugan":
+            if tier <= 1:
+                base_max = 8
+            elif tier <= 3:
+                base_max = 10
+            elif tier <= 5:
+                base_max = 12
+            else:
+                base_max = 16
+
+        # RealESRGAN x4plus / x4plus_anime über ncnn: moderat
+        elif family in {"x4plus", "x4plus_anime"}:
+            if tier <= 1:
+                base_max = 4
+            elif tier <= 3:
+                base_max = 5
+            elif tier <= 5:
+                base_max = 6
+            else:
+                base_max = 8
+
+        # animevideo / general_x4v3 / x2plus auf ncnn: gut skalierend
+        elif family in {"anime_video", "x2plus", "general_x4v3"}:
+            if tier <= 1:
+                base_max = 5
+            elif tier <= 3:
+                base_max = 7
+            elif tier <= 5:
+                base_max = 9
+            else:
+                base_max = 12
+
+        # Rest
+        else:
+            if tier <= 1:
+                base_max = 3
+            elif tier <= 3:
+                base_max = 4
+            elif tier <= 5:
+                base_max = 6
+            else:
+                base_max = 8
+
+    else:
+        # Fallback-Backend: eher konservativ
+        if tier <= 1:
+            base_max = 3
+        elif tier <= 3:
+            base_max = 4
+        elif tier <= 5:
+            base_max = 6
+        else:
+            base_max = 8
+
+    # 3) Content-Schwere (MP * scale^2)
+    content_heavy = mp * (scale**2)
+    # sehr große Frames + hoher Scale → eher weniger Worker
+    if content_heavy >= 80.0:
+        base_max -= 3
+    elif content_heavy >= 40.0:
+        base_max -= 2
+    # sehr kleine Frames → mehr Worker
+    elif content_heavy <= 1.5:
+        base_max += 2
+    elif content_heavy <= 3.0:
+        base_max += 1
+
+    # Face-Enhance macht Modelle teurer
     if face_enhance:
-        base -= 1
-    base = max(1, base)
+        base_max -= 1
 
-    # 6) VRAM-basierte harte Obergrenzen
-    if vram_mb >= 32768:
-        vram_cap = 20
-    elif vram_mb >= 24576:
-        vram_cap = 16
-    elif vram_mb >= 16384:
-        vram_cap = 12
-    elif vram_mb >= 12288:
-        vram_cap = 8
-    elif vram_mb >= 8192:
-        vram_cap = 6
-    else:
-        vram_cap = 4
+    # 4) Spezialkappen für PyTorch (FP32 / Full-Frame)
+    if backend_norm == "pytorch":
+        if prefer_fp32:
+            if tier <= 3:
+                base_max -= 2
+            else:
+                base_max -= 1
+        if (tile_size or 0) == 0:
+            # Full-Frame ohne Tiles → VRAM-Gefahr vor allem < 12 GB
+            if tier <= 4:
+                base_max -= 2
+            else:
+                base_max -= 1
 
-    # 7) Profile
-    if prof == "medium":
-        med = int(max(2, math.floor(base * 0.65)))
-        med = min(med, base, vram_cap)
-        if total_frames:
-            med = min(med, int(total_frames))
-        med = max(model_min if (total_frames or 2) >= model_min else 1, med)
-        return med
+    # 5) Grundklemmen
+    base_max = max(1, base_max)
 
-    if prof == "max":
-        bump = 0
-        if not prefer_fp32:
-            if vram_mb >= 24576:
-                bump += 7
-            elif vram_mb >= 16384:
-                bump += 6
-            elif vram_mb >= 12288:
-                bump += 5
-        if int(tile_size or 0) > 0:
-            bump += 1
-        w = base + bump
-        w = min(w, vram_cap, base * 2)  # nie >2× Basis
-        w = max(1, w)
-        if total_frames:
-            w = min(w, int(total_frames))
-        w = max(model_min if (total_frames or 2) >= model_min else 1, w)
-        return w
+    # CPU-Hardcap (2× logische Kerne)
+    cpu_soft_cap = max(1, cpu_logical * 2)
+    base_max = min(base_max, cpu_soft_cap)
 
-    # 8) "auto" – etwas geringerer Headroom (aggressiver)
-    headroom_env = os.environ.get("AI_AUTO_HEADROOM", "").strip()
-    try:
-        headroom = float(headroom_env) if headroom_env else 0.3
-    except Exception:
-        headroom = 0.3
-    headroom = min(0.5, max(0.0, 1.3 * headroom))
+    # absolute Obergrenze
+    HARD_MAX = 32
+    base_max = min(base_max, HARD_MAX)
 
-    auto_w = int(math.floor(base * (1.0 - headroom)))
-    auto_w = max(1, auto_w)
-    auto_w = min(auto_w, vram_cap)
+    # nicht mehr Worker als Frames
     if total_frames:
-        auto_w = min(auto_w, int(total_frames))
-    auto_w = max(model_min if (total_frames or 2) >= model_min else 1, auto_w)
+        base_max = min(base_max, total_frames)
 
-    return auto_w
+    # Env-basierte globale Klammern
+    if env_max_workers > 0:
+        base_max = min(base_max, env_max_workers)
+    if env_min_workers > 0:
+        base_max = max(base_max, env_min_workers)
+
+    # 6) Profil-spezifische Ableitung von base_max → w
+    if prof == "minimal":
+        if base_max <= 2:
+            w = 1
+        elif base_max <= 4:
+            w = 2
+        else:
+            w = 3
+    elif prof == "medium":
+        w = max(2, int(math.floor(base_max * 0.6)))
+    elif prof == "max":
+        w = base_max + 2
+    else:
+        # 'auto' (oder None): Headroom per Env einstellbar
+        headroom_env = os.environ.get("AI_AUTO_HEADROOM", "").strip()
+        try:
+            headroom = float(headroom_env) if headroom_env else 0.2
+        except Exception:
+            headroom = 0.2
+        headroom = max(0.0, min(0.5, headroom))
+        w = int(math.floor(base_max * (1.0 - headroom)))
+        w = max(1, w)
+
+    # 7) Nochmals Klammern
+    if total_frames:
+        w = min(w, total_frames)
+    w = max(1, min(w, base_max))
+
+    # Mindest-Poolgröße für Modelle, die im Benchmark klar profitieren
+    if family in {"anime_video", "general_x4v3"} and total_frames >= 16:
+        w = max(2, w)
+    if family == "realcugan" and total_frames >= 32:
+        w = max(3, w)
+
+    # Env-Klammern final erneut anwenden
+    if env_max_workers > 0:
+        w = min(w, env_max_workers)
+    if env_min_workers > 0:
+        w = max(w, env_min_workers)
+
+    if total_frames:
+        w = min(w, total_frames)
+    return max(1, w)
 
 
 # ========== 8) BLENDING / DIAG / CHUNKING ====================================
@@ -1818,10 +1987,13 @@ def compute_dynamic_chunk(
     scale: int,
     total_frames: int,
     default_chunk: int,
+    *,
+    tta: bool = False,
+    tta_factor: Optional[float] = None,
 ) -> int:
     """
     Schätzt eine Chunk-Größe aus freiem Speicher & Bildbudget.
-    Ziel: ~55% Budget nutzen, harte Min/Max-Klammern, Frames berücksichtigen.
+    Ziel: ~55% Budget nutzen; TTA kann per Faktor extra Puffer verlangen.
     """
     free_bytes = max(0.0, float(free_gb)) * (1024**3)
     budget = max(256 * 1024**2, int(free_bytes * 0.55))
@@ -1829,21 +2001,41 @@ def compute_dynamic_chunk(
     raw_bytes = width * height * bpp
     up_bytes = (width * scale) * (height * scale) * bpp
     per_frame = int((raw_bytes + up_bytes) * 1.2)
+    tta_mul = 1.0
+    if tta:
+        if tta_factor is None:
+            try:
+                tta_factor = float(os.environ.get("AI_TTA_SPACE_FACTOR", "12") or 12.0)
+            except Exception:
+                tta_factor = 10.0
+        tta_mul = max(1.0, float(tta_factor))
+        per_frame = int(per_frame * tta_mul)
     if per_frame <= 0:
         return default_chunk
     est = max(1, budget // per_frame)
-    MIN_CHUNK = 100
+    max_by_budget = int(est)
+    MIN_CHUNK = 100 if not tta else 20
     MAX_CHUNK = 2000
-    chunk = int(max(MIN_CHUNK, min(MAX_CHUNK, est)))
-    chunk = min(chunk, total_frames)
-    if total_frames > 0:
-        max_segments = 100
-        chunk = max(chunk, max(1, total_frames // max_segments))
+    max_segments = 100 if not tta else 1000
+
+    chunk = min(MAX_CHUNK, max_by_budget)
+
     if default_chunk and default_chunk <= MAX_CHUNK:
-        if default_chunk * per_frame <= budget * 1.1:
+        if default_chunk <= max_by_budget * 1.1:
             chunk = max(chunk, default_chunk)
+
+    if MIN_CHUNK <= max_by_budget:
+        chunk = max(chunk, MIN_CHUNK)
+
+    if total_frames > 0:
+        floor = max(1, total_frames // max_segments)
+        if floor <= max_by_budget:
+            chunk = max(chunk, floor)
+        chunk = min(chunk, total_frames)
     print_log(
-        f"[dynamic_chunk] free_gb={free_gb:.2f} in={width}x{height} s={scale} frames={total_frames} → chunk={chunk}"
+        f"[dynamic_chunk] free_gb={free_gb:.2f} in={width}x{height} s={scale} "
+        f"frames={total_frames} tta={'yes' if tta else 'no'} "
+        f"tta_mul={tta_mul:.2f} → chunk={chunk}"
     )
     return int(chunk)
 

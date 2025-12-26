@@ -3,7 +3,9 @@
 
 ![PhotonFrame – VideoKit Logo](assets/logo.png)
 
-A modular, ffmpeg-driven video toolkit with optional AI models – designed for **interactive use on the command line** _and_ for fully automated batch workflows.
+
+One toolkit for the video tasks you do every week — and the ones you only dare to do once.
+PhotonFrame VideoKit is a modular, ffmpeg-driven command-line suite with optional AI features, built for guided interactive use and for reliable, repeatable batch automation. Convert and compress, trim and cut, add or replace audio, attach subtitle tracks, generate GIFs, edit metadata for media servers, and much more—without sacrificing control over codecs, quality, or reproducibility.
 PhotonFrame VideoKit wraps common video tasks into focused subcommands:
 
 - converting & compressing

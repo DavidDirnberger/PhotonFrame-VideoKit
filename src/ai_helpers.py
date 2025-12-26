@@ -340,6 +340,7 @@ def compute_preflight_info(
     face_enhance: bool = False,  # rückwärtskompatibel
     user_profile: Optional[str] = None,
     tta: bool = False,
+    backend: str = "pytorch",
 ) -> PreflightInfo:
     """Liest GPU/VRAM/Torch, schätzt Tile/Workers/Scale und liefert UI-freundliche Preflight-Infos."""
     print_log(f"[preflight] start model={model} raw_dir={raw_dir}")
@@ -372,6 +373,7 @@ def compute_preflight_info(
         model=model,
         face_enhance=face_enhance,
         user_profile=norm,
+        backend=backend,
     )
 
     # Profil hart respektieren – auch in der Vorschau:
@@ -931,6 +933,7 @@ def run_ai_for_chunk(
                 scale=scale_int,
                 model=model,
                 user_profile=norm_profile,
+                backend="ncnn",
             )
             if norm_profile in ("serial", "no_parallelisation", "min", "minimal"):
                 workers_eff = 1

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is inspired by common open-source practice (semantic versioning with
 human-readable summaries).
 
+## [0.2.1-alpha] – 2025-12-26
+
+### Changed
+
+- **aienhance:** Updated the worker selection mechanism to improve how the number
+  of workers is determined and applied (more consistent scaling across different
+  inputs and environments).
+
+### Fixed
+
+- **aienhance (emulated TTA):** Fixed a bug affecting longer videos (around
+  ~1 minute and above) where incorrect memory management could lead to an
+  early/incorrect abort.
+- **Non-AI methods:** Fixed an intermittent issue in the FFmpeg wrapper where the
+  final output name could sometimes still display a stale (not yet updated)
+  filename in certain rename/overwrite flows.
+
+---
+
 ## [0.0.1-alpha] – 2024-11-22
 
 ### Added
@@ -132,4 +151,5 @@ human-readable summaries).
 
 ---
 
+[0.2.1-alpha]: https://github.com/<your-account>/PhotonFrame-VideoKit/releases/tag/v0.2.1-alpha
 [0.0.1-alpha]: https://github.com/<your-account>/PhotonFrame-VideoKit/releases/tag/v0.0.1-alpha

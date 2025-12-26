@@ -28,7 +28,7 @@ import VideoEncodersCodecs as vcc
 
 # local
 from i18n import _, tr
-from loghandler import print_log
+from loghandler import _resolve_log_path, print_log
 
 # import ai_pipeline as ah
 # ah.set_config(force_backend="ncnn", disable_gpu=False)  # NCNN erzwingen, GPU aus
@@ -77,6 +77,27 @@ def _ffmpeg_path_and_version() -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Interne Helfer
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _log_dir_for_concat() -> Path:
+    try:
+        return Path(_resolve_log_path()).resolve().parent
+    except Exception:
+        return Path("logs")
+
+
+def _purge_old_concat_logs() -> None:
+    try:
+        log_dir = _log_dir_for_concat()
+        if not log_dir.exists():
+            return
+        for p in log_dir.glob("*.concat.log"):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def _get_model_meta() -> Dict[str, Dict[str, Any]]:
@@ -452,7 +473,9 @@ def _concat_segments_with_mg(
         "copy",
         str(out_path),
     ]
-    log_file = out_path.with_suffix(out_path.suffix + ".concat.log")
+    log_dir = _log_dir_for_concat()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{out_path.name}.concat.log"
     try:
         co.print_info(_("ai_concat_progress"))
     except Exception:
@@ -503,6 +526,7 @@ def ai_enhance(args: AIEnhanceArgs | Any) -> None:
     co.print_start(_("ai_enhance_method"))
     mg.install_global_cancel_handlers()  # ESC/Strg+C → globaler Cancel
     print_log(f"FFmpeg: {_ffmpeg_path_and_version()}")
+    _purge_old_concat_logs()
 
     project_root = (
         getattr(defin, "PROJECT_ROOT", None)
@@ -1076,6 +1100,7 @@ def ai_enhance(args: AIEnhanceArgs | Any) -> None:
         chunk_default = int(getattr(defin, "AI_CHUNK_DEFAULT", 500) or 500)
         user_chunk = getattr(args, "chunk", None)
         # CHUNK dynamisch – abhängig von freiem Speicher & Auflösung
+        tta_disk_heavy = bool(tta and emu_tta)
         CHUNK = (
             int(user_chunk)
             if user_chunk
@@ -1086,6 +1111,7 @@ def ai_enhance(args: AIEnhanceArgs | Any) -> None:
                 int(round(outscale)),
                 max(1, total_frames_all),
                 chunk_default,
+                tta=tta_disk_heavy,
             )
         )
         chunks_total = int(math.ceil(max(1, total_frames_all) / max(1, CHUNK)))
@@ -1144,6 +1170,7 @@ def ai_enhance(args: AIEnhanceArgs | Any) -> None:
                 face_enhance=bool(face_enhance),
                 user_profile=user_worker_profile,  # ← NEU
                 tta=bool(tta),
+                backend=entry_backend or "pytorch",
             )
             sel, lab, groups = ah.preflight_table_payload(pre)
             sel["chunks_total"] = chunks_total
@@ -1214,6 +1241,11 @@ def ai_enhance(args: AIEnhanceArgs | Any) -> None:
                         break
 
                     end_frame = min(start + CHUNK - 1, total_frames - 1)
+                    print_log(
+                        f"[CHUNK] idx={idx} start={start} end={end_frame} total={total_frames} "
+                        f"chunk={CHUNK} free_gb={free_gb_loop:.2f} tta={tta} "
+                        f"raw_dir={TMP_ROOT / f'raw_{idx:03d}'} up_dir={TMP_ROOT / f'up_{idx:03d}'}"
+                    )
 
                     raw_dir = TMP_ROOT / f"raw_{idx:03d}"
                     up_dir = TMP_ROOT / f"up_{idx:03d}"

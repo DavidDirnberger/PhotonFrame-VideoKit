@@ -234,9 +234,13 @@ def run_ffmpeg_with_progress(
             return lines, None
         if "#ifilename" in tmpl:
             pre_if, post_if = tmpl.split("#ifilename", 1)
+            pre_if = pre_if.replace("#ofilename", outfile.name)
+            post_if = post_if.replace("#ofilename", outfile.name)
             return ["   " + pre_if, " '" + infile.name + "' ", "  " + post_if], 1
         if "#ofilename" in tmpl:
             pre_if, post_if = tmpl.split("#ofilename", 1)
+            pre_if = pre_if.replace("#ifilename", infile.name)
+            post_if = post_if.replace("#ifilename", infile.name)
             return ["   " + pre_if, " '" + outfile.name + "' ", "  " + post_if], 1
         return ["   " + tmpl.replace("#ofilename", outfile.name)], None
 
@@ -252,9 +256,13 @@ def run_ffmpeg_with_progress(
             return lines, None
         if "#ofilename" in tmpl:
             pre, post = tmpl.split("#ofilename", 1)
+            pre = pre.replace("#ifilename", infile.name)
+            post = post.replace("#ifilename", infile.name)
             return ["   " + pre, " '" + outfile.name + "' ", "  " + post], 1
         if "#ifilename" in tmpl:
             pre, post = tmpl.split("#ifilename", 1)
+            pre = pre.replace("#ofilename", outfile.name)
+            post = post.replace("#ofilename", outfile.name)
             return ["   " + pre, " '" + infile.name + "' ", "  " + post], 1
         s = "   " + tmpl.replace("#ofilename", outfile.name).replace(
             "#ifilename", infile.name
@@ -278,46 +286,85 @@ def run_ffmpeg_with_progress(
     def _find_output_arg_index_local(argv: list[str]) -> int:
         return _find_output_arg_index(argv)
 
+    def _is_pipe_like(tok: str) -> bool:
+        tok = (tok or "").strip()
+        return (tok == "-") or tok.startswith("pipe:")
+
     # --- Output-Path & Overwrite (robust, Pipe/Null beachten) --------------
     output_arg_index = _find_output_arg_index_local(ffmpeg_cmd)
     last_arg = str(ffmpeg_cmd[output_arg_index]) if ffmpeg_cmd else ""
-    pipe_like = (last_arg == "-") or last_arg.startswith("pipe:")
-    has_real_output = (
-        False if analysis_mode else ((output_file is not None) or (not pipe_like))
-    )
+    pipe_like = _is_pipe_like(last_arg)
+
+    # "Real output" nur dann, wenn wir nicht im Analysemodus sind UND ffmpeg tatsächlich in eine Datei schreibt.
+    # (output_file allein darf keinen Datei-Output "vortäuschen", wenn ffmpeg auf pipe:- ausgibt)
+    has_real_output = (not analysis_mode) and (not pipe_like)
 
     if analysis_mode:
         output_path = input_path
     elif has_real_output:
+        # Quelle der Wahrheit für den *aktuellen* Output-Namen:
+        # 1) output_file, wenn explizit gesetzt
+        # 2) sonst das (heuristische) Output-Token aus ffmpeg_cmd
         output_path = Path(output_file) if output_file is not None else Path(last_arg)
+
+        # Wichtig: ffmpeg_cmd auf genau diesen Output-Pfad synchronisieren,
+        # damit spätere Anzeigen (und ffmpeg selbst) konsistent sind.
+        try:
+            output_arg_index = _find_output_arg_index_local(ffmpeg_cmd)
+            ffmpeg_cmd[output_arg_index] = str(output_path)
+        except Exception:
+            pass
+
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
+
         while output_path.exists() and not force_overwrite:
             if BATCH_MODE:
                 if "-y" not in ffmpeg_cmd:
-                    ffmpeg_cmd.insert(output_arg_index, "-y")
+                    # -y möglichst weit vorne einfügen (verändert keine Pfad-Indizes)
+                    ffmpeg_cmd.insert(1, "-y")
                 break
+
             outstr = f"'{output_path.name}'\n    " + _("overwrite_file")
             options = [_("yes"), _("no"), _("change_filename")]
             ans = ui.ask_user(outstr, options=options, back_button=False)  # type: ignore[call-arg]
+
             if ans == options[0]:
                 if "-y" not in ffmpeg_cmd:
-                    ffmpeg_cmd.insert(output_arg_index, "-y")
+                    ffmpeg_cmd.insert(1, "-y")
                 break
+
             elif ans == options[1]:
                 co.print_line("   ➜ " + _("skip"))
                 return 0 if mode == 1 else None
+
             else:
                 new_name = ui.ask_for_filename(str(output_path))
                 new_path = Path(new_name)
+
                 if not new_path.is_absolute():
                     new_path = output_path.with_name(new_path.name)
+
                 if new_path.suffix == "" and output_path.suffix:
                     new_path = new_path.with_suffix(output_path.suffix)
+
                 output_path = new_path
-                ffmpeg_cmd[output_arg_index] = str(new_path)
+
+                # Parent ggf. anlegen (falls der User einen neuen Ordner tippt)
+                try:
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
+
+                # Ganz entscheidend: vor dem Schreiben in ffmpeg_cmd den Output-Index
+                # frisch bestimmen (kann sich durch Inserts geändert haben).
+                try:
+                    output_arg_index = _find_output_arg_index_local(ffmpeg_cmd)
+                    ffmpeg_cmd[output_arg_index] = str(output_path)
+                except Exception:
+                    pass
                 continue
     else:
         output_path = input_path
@@ -608,16 +655,13 @@ def run_ffmpeg_with_progress(
 
     # --- Abschlussblock ----------------------------------------------------
     ret = proc.returncode or 0
-    success = (ret == 0) and (
-        not has_real_output or (has_real_output and output_path.exists())
-    )
+    success = (ret == 0) and (not has_real_output or output_path.exists())
     outfile_for_template = output_path if (success and has_real_output) else input_path
 
     # 1) An den Anfang des reservierten Blocks springen
     sys.stdout.write(f"\033[{reserve_lines}F")
 
     # 2) Den gesamten reservierten Block *vollständig leeren*
-    #    (so verschwinden Progress-Zeilen, Bar und Hint – egal wie viele Zeilen es waren)
     for _t in range(reserve_lines):
         sys.stdout.write(defin.CLEAR_LINE + "\n")
 
@@ -626,7 +670,6 @@ def run_ffmpeg_with_progress(
 
     # 4) Abschlussausgabe:
     if was_cancelled:
-        # Abbruchzeile (orange)
         cancel_msg = (
             _("cancelled")
             if "cancelled" in getattr(defin, "MESSAGES", {}).get("de", {})
@@ -646,7 +689,6 @@ def run_ffmpeg_with_progress(
         )
 
     elif success:
-        # Nur bei Erfolg finished_line ausgeben (kann 1–3 Zeilen sein)
         fin_lines_raw, fin_italic_idx = split_finished_template(
             finished_line, input_path, outfile_for_template
         )
@@ -655,7 +697,6 @@ def run_ffmpeg_with_progress(
             sys.stdout.write(defin.CLEAR_LINE + s + "\n")
 
     else:
-        # Failzeile (rot)
         err_msg = (
             _("ffmpeg_failed")
             if "ffmpeg_failed" in getattr(defin, "MESSAGES", {}).get("de", {})
@@ -675,11 +716,9 @@ def run_ffmpeg_with_progress(
             except Exception:
                 pass
             _fail_cleanup(remove_partial=True)
-            # Harte Unterbrechung des Aufruferflusses:
             raise KeyboardInterrupt("Abbruch durch Benutzer (ESC/Strg+C).")
 
         if not success:
-            # ffmpeg-Fehler oder Output fehlt → als Fehler behandeln
             _fail_cleanup(remove_partial=True)
             raise FFmpegFailed(
                 f"ffmpeg fehlgeschlagen (exit={ret}); Ausgabe nicht erstellt."
@@ -690,8 +729,6 @@ def run_ffmpeg_with_progress(
 
     # ── Code-/Silent-Modi behalten altes Verhalten ────────────────────────────
     if mode > 0:
-        # mode==1: Exit-Code zurück
         return ret if mode == 1 else None
 
-    # Fallback (sollte eigentlich nie hier landen)
     return output_path if (success and has_real_output) else None

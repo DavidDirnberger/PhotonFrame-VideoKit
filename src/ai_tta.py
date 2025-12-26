@@ -74,7 +74,7 @@ def adjust_workers_for_emulated_tta(
     elif vram_mb >= 16_384:  # 16 GB
         w = max(1, math.ceil(base * 0.8))
     else:  # <= 12 GB
-        w = max(1, math.ceil(base * 0.6))
+        w = max(1, math.ceil(base * 0.65))
 
     if honor_min and prof in ("minimal",):
         w = max(2, w)
@@ -246,13 +246,41 @@ def prepare_tta_variant_dirs(
         return []
 
     # Basis-Tmpdir: respektiert AI_TMPDIR falls gesetzt
+    tmp_root_res = tmp_root.resolve()
+    ai_tmp_env = os.environ.get("AI_TMPDIR", None)
     base_root = Path(os.environ.get("AI_TMPDIR", str(tmp_root))).resolve()
+    print_log(
+        f"[TTA-PREP] tmp_root={tmp_root_res} base_root={base_root} AI_TMPDIR="
+        f"{'(unset)' if ai_tmp_env is None else ai_tmp_env}"
+    )
+    if base_root != tmp_root_res:
+        print_log(
+            "[TTA-PREP] NOTE: base_root differs from tmp_root (cleanup uses tmp_root unless overridden)"
+        )
+    try:
+        du = shutil.disk_usage(str(base_root))
+        print_log(
+            f"[TTA-PREP] disk base_root total_gb={du.total / (1024**3):.2f} "
+            f"free_gb={du.free / (1024**3):.2f}"
+        )
+    except Exception as e:
+        print_log(f"[TTA-PREP] disk usage error: {e!r}")
     shutil.rmtree(base_root, ignore_errors=True)
     base_root.mkdir(parents=True, exist_ok=True)
 
     frames = sorted(input_dir.glob("frame_*.png"), key=ih.frame_index_from_name)
     if not frames:
+        print_log("[TTA-PREP] no input frames found")
         return []
+    try:
+        sizes = [p.stat().st_size for p in frames[:5]]
+        avg = int(sum(sizes) / max(1, len(sizes))) if sizes else 0
+        est = int(avg * len(frames)) if avg else 0
+        print_log(
+            f"[TTA-PREP] frames={len(frames)} avg_bytes={avg} est_total_bytes={est}"
+        )
+    except Exception as e:
+        print_log(f"[TTA-PREP] frame size estimate error: {e!r}")
 
     pairs = _tta_ops()
     flags = _tta_flag_list()
@@ -364,6 +392,13 @@ def prepare_tta_variant_dirs(
         print_log(
             f"[TTA-PREP] prepared variants={len(variants)} (of 8) root={base_root}"
         )
+        try:
+            var_counts = {
+                v.idx: len(list(v.in_dir.glob("frame_*.png"))) for v in variants
+            }
+            print_log(f"[TTA-PREP] variant_in_counts={var_counts}")
+        except Exception as e:
+            print_log(f"[TTA-PREP] variant_in_counts error: {e!r}")
     return variants
 
 
@@ -478,8 +513,26 @@ def fuse_tta_pool_variants_to_updir(
     except Exception:
         fuse_retries = 5
 
+    print_log(
+        f"[TTA-POOL] FUSE begin variants={len(variants)} frames={total} "
+        f"procs={procs} retries={fuse_retries}"
+    )
+
+    import threading
+
+    lock = threading.Lock()
+    stats = {"full": 0, "partial": 0, "none": 0}
+    total_vars = len(out_dirs)
+
     finished = 0
     ok_count = 0
+
+    def _log_fuse_summary() -> None:
+        print_log(
+            f"[TTA-POOL] FUSE summary ok={ok_count}/{total} "
+            f"full={stats['full']} partial={stats['partial']} none={stats['none']} "
+            f"variants={total_vars}"
+        )
 
     # Worker: nimmt nur vorhandene Outputs einer Frame-Variante
     def _fuse_one(stem: str) -> bool:
@@ -506,9 +559,13 @@ def fuse_tta_pool_variants_to_updir(
             attempt += 1
 
         if not var_outputs:
+            with lock:
+                stats["none"] += 1
             print_log(f"[TTA-POOL] FUSE skip (no candidates) for {stem}")
             return False
         if miss:
+            with lock:
+                stats["partial"] += 1
             fuse_warnings.append(
                 tr(
                     {
@@ -518,6 +575,9 @@ def fuse_tta_pool_variants_to_updir(
                 )
             )
             missing_stems.append(stem)
+        else:
+            with lock:
+                stats["full"] += 1
         return _fuse_tta_outputs_to_file(var_outputs, up_dir / f"{stem}_out.png")
 
     if procs == 1:
@@ -548,6 +608,7 @@ def fuse_tta_pool_variants_to_updir(
                     hint=_("cancel_hint"),
                     ui_phase_id=ui_phase_id,
                 )
+        _log_fuse_summary()
         return ok_count
 
     # Parallel (Threads) mit UI-Progress
@@ -597,6 +658,7 @@ def fuse_tta_pool_variants_to_updir(
         except Exception:
             pass
 
+    _log_fuse_summary()
     return ok_count
 
 

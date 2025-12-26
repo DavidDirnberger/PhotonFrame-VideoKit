@@ -591,6 +591,21 @@ def trim(args: Any) -> None:
                 mode=1,
             )
 
+            # --- MINIMAL FIX: output ggf. auf den finalen (umbenannten) Pfad synchronisieren ---
+            try:
+                out_idx = pw._find_output_arg_index(
+                    cmd
+                )  # cmd wurde in pw ggf. angepasst
+                output = Path(cmd[out_idx])
+            except Exception:
+                # Fallback: bei _build_copy_trim_cmd ist Output i.d.R. das letzte Token
+                output = Path(cmd[-1])
+
+            # Optional, aber praktisch: wenn rc==0 UND Datei nicht existiert, ist es sehr wahrscheinlich "Skip".
+            if rc == 0 and (not output.exists() or output.stat().st_size == 0):
+                # User hat im Dialog wahrscheinlich "no/skip" gewählt -> nächstes File
+                continue
+
             if rc != 0 or (not output.exists() or output.stat().st_size == 0):
                 co.print_warning(_("trim_copy_failed_fallback_reencode"))
                 cmd = _build_lossless_reencode_cmd(
@@ -611,7 +626,7 @@ def trim(args: Any) -> None:
                 co.print_line(
                     "\n  "
                     + _("trimming_file_done").replace(
-                        "#ofilename", "\n " + str(output.name) + "\n"
+                        "#ofilename", "\n  " + str(output.name) + "\n"
                     ),
                     color="light_green",
                 )

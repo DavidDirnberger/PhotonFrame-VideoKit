@@ -981,6 +981,7 @@ def run_esrgan_per_frame_python(
             model=model,
             face_enhance=face_enhance,
             user_profile=user_worker_profile,
+            backend="pytorch",
         )
         emulate_tta = bool(tta and at.can_emulate_tta_x8())
         workers = (
@@ -1038,15 +1039,59 @@ def run_esrgan_per_frame_python(
 
             # 1) TTA-Varianten vorbereiten (Identität via Hardlinks, andere via Transform)
             tta_tmp_root = up_dir / "__tta_tmp__"
+            ai_tmp_env = os.environ.get("AI_TMPDIR", None)
+            print_log(
+                f"[PT-pf] TTA-POOL tmp_root={tta_tmp_root} AI_TMPDIR="
+                f"{'(unset)' if ai_tmp_env is None else ai_tmp_env}",
+                "_pytorch",
+            )
+            try:
+                du = shutil.disk_usage(str(up_dir))
+                print_log(
+                    f"[PT-pf] TTA-POOL disk up_dir total_gb={du.total / (1024**3):.2f} "
+                    f"free_gb={du.free / (1024**3):.2f}",
+                    "_pytorch",
+                )
+            except Exception as e:
+                print_log(f"[PT-pf] TTA-POOL disk usage error: {e!r}", "_pytorch")
             variants = at.prepare_tta_variant_dirs(
                 input_dir=input_dir, tmp_root=tta_tmp_root
             )
+            tta_cleanup_root = tta_tmp_root
+            if variants:
+                try:
+                    tta_cleanup_root = variants[0].in_dir.parent.parent
+                except Exception:
+                    tta_cleanup_root = tta_tmp_root
+
+            def _cleanup_tta_tmp() -> None:
+                if str(os.environ.get("AI_TTA_KEEP_TMP", "")).strip() == "1":
+                    return
+                try:
+                    shutil.rmtree(tta_cleanup_root, ignore_errors=True)
+                except Exception:
+                    pass
+
             if not variants:
                 print_log(
                     "[PT-pf] TTA-POOL: keine Varianten erzeugt → Fallback per-frame",
                     "_pytorch",
                 )
+                _cleanup_tta_tmp()
             else:
+                try:
+                    var_in_counts = {
+                        v.idx: len(list(v.in_dir.glob("frame_*.png"))) for v in variants
+                    }
+                    print_log(
+                        f"[PT-pf] TTA-POOL variant_in_counts={var_in_counts}",
+                        "_pytorch",
+                    )
+                except Exception as e:
+                    print_log(
+                        f"[PT-pf] TTA-POOL variant_in_counts error: {e!r}",
+                        "_pytorch",
+                    )
                 # UI: zwei Balken falls mehrere Chunks, Fortschritt über (var_idx/8) × Frames
                 try:
                     term_cols = shutil.get_terminal_size((80, 20)).columns
@@ -1160,8 +1205,19 @@ def run_esrgan_per_frame_python(
                         env=env,
                         progress_cb=_progress_cb_tta,
                     )
+                    try:
+                        n_out = len(list(var.out_dir.glob("*_out.png"))) + len(
+                            list(var.out_dir.glob("frame_*.png"))
+                        )
+                    except Exception as e:
+                        n_out = -1
+                        print_log(
+                            f"[PT-pf] TTA-POOL var {i}/{nvars} output count error: {e!r}",
+                            "_pytorch",
+                        )
                     print_log(
-                        f"[PT-pf] TTA-POOL var {i}/{nvars} result={ok_var}", "_pytorch"
+                        f"[PT-pf] TTA-POOL var {i}/{nvars} result={ok_var} outputs={n_out}",
+                        "_pytorch",
                     )
 
                 # 3) Fuse: Varianten mitteln → up_dir/stem_out.png
@@ -1215,6 +1271,13 @@ def run_esrgan_per_frame_python(
                 missing = max(0, total - produced)
                 success = missing <= miss_allow
 
+                print_log(
+                    f"[PT-pf] TTA-POOL normalize normalized={normalized} seq_count={seq_count} "
+                    f"produced={produced} total={total} missing={missing} allow={miss_allow} "
+                    f"success={success}",
+                    "_pytorch",
+                )
+
                 if success and missing > 0:
                     co.print_warning(
                         _("ai_tta_missing_frames").format(
@@ -1222,13 +1285,8 @@ def run_esrgan_per_frame_python(
                         )
                     )
 
-                # Optional: TTA-Tmp aufräumen
-                try:
-                    shutil.rmtree(tta_tmp_root, ignore_errors=True)
-                except Exception:
-                    pass
-
                 if success:
+                    _cleanup_tta_tmp()
                     ab.persist_context(input_dir, up_dir, tag="torch-tta-pool-ok")
                     _hk(
                         "end",
@@ -1245,6 +1303,7 @@ def run_esrgan_per_frame_python(
                     "[PT-pf] TTA-POOL normalization insufficient → Fallback per-frame …",
                     "_pytorch",
                 )
+                _cleanup_tta_tmp()
                 ab.debug_dump_pool_failure(
                     up_dir=up_dir,
                     input_dir=input_dir,
