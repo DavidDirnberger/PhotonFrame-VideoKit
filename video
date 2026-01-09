@@ -38,7 +38,8 @@ ENV_BIN="$CONDA_DIR/envs/$ENV_NAME/bin"
 ENV_LIB="$CONDA_DIR/envs/$ENV_NAME/lib"
 
 ensure_writable_or_prompt() {
-  local dir="$1" tmp="$dir/.video_writable_test.$$"
+  local dir="${1:-${PWD:-.}}"
+  local tmp="${dir}/.video_writable_test.$$"
   if (umask 022; touch "$tmp" 2>/dev/null && rm -f "$tmp" 2>/dev/null); then
     return 0
   fi

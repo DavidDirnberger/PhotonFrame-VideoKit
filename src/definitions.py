@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Final, List, Optional, Set, Tuple, TypedDict, Union
 
-__version__ = "0.2.2-alpha"
+__version__ = "0.2.3-alpha"
 
 LOG_DIR = "LOG_DIRECTORY"
 LOG_FILE = "LOG_DIRECTORY/PhotonFrame_VideoKit.log"

@@ -221,10 +221,6 @@ class ANSIColor:
         if self.mode in ("256", "truecolor") and color in self._COLORS_256:
             n = self._COLORS_256[color]
             code = f"\033[{48 if background else 38};5;{n}m"
-        elif color in self._COLORS_256:
-            # Fallback-Logik
-            std_fallback = self._FALLBACK_256_TO_STD.get(color, "white")
-            return self.get(std_fallback, background=background)
         elif color.startswith("bright_") and color[7:] in self._STD_COLORS:
             base = 90 + self._STD_COLORS[color[7:]]
             code = f"\033[{base + (10 if background else 0)}m"
@@ -235,6 +231,11 @@ class ANSIColor:
             code = self._ATTRIBUTES["reset"]
         elif color in self._ATTRIBUTES:
             code = self._ATTRIBUTES[color]
+        elif color in self._COLORS_256:
+            # Fallback-Logik auf Standardfarben (ohne Rekursion)
+            std_fallback = self._FALLBACK_256_TO_STD.get(color, "white")
+            base = 30 + self._STD_COLORS.get(std_fallback, self._STD_COLORS["white"])
+            code = f"\033[{base + (10 if background else 0)}m"
         else:
             raise ValueError(f"Unknown color/style: '{color}'")
         return code

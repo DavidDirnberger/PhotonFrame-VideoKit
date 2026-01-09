@@ -1754,10 +1754,17 @@ if [[ -z "$CURRENT_CONDA_BIN" || "$CURRENT_CONDA_BIN" != "$CONDA_DIR/bin/conda" 
   wait_for_net 999999 10
   log "Conda missing or not at $CONDA_DIR - installing Miniconda locally..."
   OS_NAME_BOOT="$(detect_os_name)"
+  ARCH_NAME_BOOT="$(uname -m 2>/dev/null || true)"
   case "$OS_NAME_BOOT" in
     mac)  INSTALLER="Miniconda3-latest-MacOSX-x86_64.sh" ;;            # simple default; arm users may switch manually
     windows) err "Windows is not supported by this bash installer." ;;
-    *)    INSTALLER="Miniconda3-latest-Linux-x86_64.sh" ;;
+    *)
+      case "$ARCH_NAME_BOOT" in
+        aarch64|arm64) INSTALLER="Miniconda3-latest-Linux-aarch64.sh" ;;
+        armv7l|armv6l) INSTALLER="Miniconda3-latest-Linux-armv7l.sh" ;;
+        *) INSTALLER="Miniconda3-latest-Linux-x86_64.sh" ;;
+      esac
+      ;;
   esac
   URL="https://repo.anaconda.com/miniconda/$INSTALLER"
   download_with_retries "$URL" "/tmp/$INSTALLER" 80 10
@@ -1785,7 +1792,11 @@ fi
 
 # Use mamba if present
 if command -v mamba &>/dev/null; then CMD_INSTALL="mamba"; else CMD_INSTALL="conda"; fi
-export CONDA_SUBDIR="linux-64"
+case "$(uname -m 2>/dev/null || true)" in
+  aarch64|arm64) export CONDA_SUBDIR="linux-aarch64" ;;
+  armv7l|armv6l) export CONDA_SUBDIR="linux-armv7l" ;;
+  *) export CONDA_SUBDIR="linux-64" ;;
+esac
 
 ROOT_CONDARC="$CONDA_DIR/.condarc"
 rm -f "$ROOT_CONDARC"
