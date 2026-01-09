@@ -56,6 +56,16 @@ def _pf_has_alpha(pf: Optional[str]) -> bool:
     return any(x in p for x in ("rgba", "bgra", "argb", "gbrap", "yuva"))
 
 
+def _is_hw_encoder(name: str) -> bool:
+    n = (name or "").lower()
+    return n.endswith(("_vaapi", "_nvenc", "_qsv", "_amf", "_videotoolbox"))
+
+
+def _is_high_bit_pf(pf: Optional[str]) -> bool:
+    p = (pf or "").lower()
+    return any(x in p for x in ("10", "12", "14", "16"))
+
+
 @dataclass
 class InterpolateArgs:
     files: List[str] = field(default_factory=_list_str_factory)
@@ -137,6 +147,14 @@ def interpolate(args: Any) -> None:
     co.print_value_info(_i18n("quality"), QUALITY_PRESETS[QUALITY])
     desc_key = QUALITY + "_quality"
     co.print_info(_i18n(desc_key))
+
+    try:
+        has_minterpolate = vc._has_filter("minterpolate")
+    except Exception:
+        has_minterpolate = False
+    if not has_minterpolate:
+        co.print_error(_i18n("minterpolate_missing"))
+        return
 
     # preset_name = _pick_preset()
     preset_name = "ultra"
@@ -242,6 +260,35 @@ def interpolate(args: Any) -> None:
         # Postprocess (Encoder-Quirks etc.) VOR unserem Filterbau laufen lassen
         cmd = vc.postprocess_cmd_all_presets(cmd, plan)
 
+        # Interpolation ist ein Software-Filter: HW-Encoder vermeiden (vaapi/nvenc/qsv/amf/vtb)
+        try:
+            enc_now = vc._active_encoder(cmd, vc.encoder_for_codec(codec_key) or "")
+            if _is_hw_encoder(enc_now):
+                sw_enc = vc.encoder_for_codec(codec_key) or enc_now
+                if "-c:v" in cmd:
+                    j = cmd.index("-c:v")
+                    if j + 1 < len(cmd):
+                        cmd[j + 1] = sw_enc
+                    else:
+                        cmd += [sw_enc]
+                else:
+                    cmd += ["-c:v", sw_enc]
+                vc._strip_options(
+                    cmd,
+                    {
+                        "-init_hw_device",
+                        "-filter_hw_device",
+                        "-hwaccel",
+                        "-hwaccel_device",
+                        "-hwaccel_output_format",
+                        "-extra_hw_frames",
+                        "-vaapi_device",
+                        "-qsv_device",
+                    },
+                )
+        except Exception:
+            pass
+
         # ======== HQ/Max – Vorfilter (mildes Denoising für stabilere MVs) ========
         pre_filters: List[str] = []
         try:
@@ -269,6 +316,38 @@ def interpolate(args: Any) -> None:
         has_alpha = _pf_has_alpha(src_pf)
         cont = (container or "").lower()
         container_supports_alpha = cont in ("mkv", "matroska", "mov", "avi")
+        safe_pf = vc.playback_pix_fmt_for(container)
+        pix_fmt_idx: Optional[int] = None
+        pix_fmt_val = ""
+        if "-pix_fmt" in cmd:
+            pix_fmt_idx = cmd.index("-pix_fmt")
+            if pix_fmt_idx + 1 < len(cmd):
+                pix_fmt_val = str(cmd[pix_fmt_idx + 1]).lower()
+
+        if has_alpha and container_supports_alpha:
+            if pix_fmt_val and not _pf_has_alpha(pix_fmt_val):
+                try:
+                    vc._strip_options(cmd, {"-pix_fmt"})
+                    pix_fmt_idx = None
+                    pix_fmt_val = ""
+                except Exception:
+                    pass
+        else:
+            if safe_pf:
+                if pix_fmt_idx is not None:
+                    if pix_fmt_idx + 1 < len(cmd):
+                        cmd[pix_fmt_idx + 1] = safe_pf
+                    else:
+                        cmd += [safe_pf]
+                else:
+                    cmd += ["-pix_fmt", safe_pf]
+            elif pix_fmt_val and _is_high_bit_pf(pix_fmt_val):
+                try:
+                    vc._strip_options(cmd, {"-pix_fmt"})
+                    pix_fmt_idx = None
+                    pix_fmt_val = ""
+                except Exception:
+                    pass
 
         # Falls der Plan vorher ein -vf gesetzt hat, entfernen – wir benutzen -filter_complex
         if "-vf" in cmd:
@@ -326,6 +405,8 @@ def interpolate(args: Any) -> None:
             vf_chain_parts: List[str] = []
             if pre_filters:
                 vf_chain_parts.extend(pre_filters)
+            if safe_pf:
+                vf_chain_parts.append(f"format={safe_pf}")
             vf_chain_parts.append(mi)
             if post_filters:
                 vf_chain_parts.extend(post_filters)
@@ -339,6 +420,8 @@ def interpolate(args: Any) -> None:
 
             if "-vsync" not in cmd:
                 cmd += ["-vsync", "2"]
+
+        co.print_debug("ffmpeg_interpolate_cmd", cmd=cmd)
 
         # Finalen Command zeigen & ausführen
         # co.print_debug('ffmpeg_cmd', cmd=cmd)

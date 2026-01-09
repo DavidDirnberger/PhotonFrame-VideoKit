@@ -490,6 +490,16 @@ def run_ffmpeg_with_progress(
     FRAME_RE = re.compile(r"frame=\s*(\d+)")
     KV_RE = re.compile(r"^\s*([a-zA-Z0-9_]+)\s*=\s*(.*)\s*$")
     was_cancelled = False
+    err_tail: list[str] = []
+    err_tail_max = 12
+
+    def _push_err(line: str) -> None:
+        cleaned = defin.ANSI_REGEX.sub("", line).strip()
+        if not cleaned:
+            return
+        err_tail.append(cleaned)
+        if len(err_tail) > err_tail_max:
+            del err_tail[0 : len(err_tail) - err_tail_max]
 
     with subprocess.Popen(
         ffmpeg_cmd,
@@ -569,6 +579,7 @@ def run_ffmpeg_with_progress(
                     if use_progress_kv:
                         m = KV_RE.match(line)
                         if not m:
+                            _push_err(line)
                             continue
                         k, v = m.group(1).lower(), m.group(2)
 
@@ -622,6 +633,7 @@ def run_ffmpeg_with_progress(
                         continue
 
                     if not (total_frames or duration):
+                        _push_err(line)
                         tick += 1
                         bar_str, colour = _make_indeterminate(tick)
                         gh.print_progress_block(
@@ -630,6 +642,9 @@ def run_ffmpeg_with_progress(
                             hint_line,
                         )
                         last_draw = time.time()
+                        continue
+
+                    _push_err(line)
 
             proc.wait()
         finally:
@@ -705,6 +720,12 @@ def run_ffmpeg_with_progress(
         sys.stdout.write(
             defin.CLEAR_LINE + c.get("red") + "   " + err_msg + c.get("reset") + "\n"
         )
+
+    if not success and not was_cancelled and err_tail:
+        header = _("ffmpeg_error_details").format(n=len(err_tail))
+        sys.stdout.write(defin.CLEAR_LINE + "   " + header + "\n")
+        for ln in err_tail:
+            sys.stdout.write(defin.CLEAR_LINE + "   " + ln + "\n")
 
     sys.stdout.flush()
 

@@ -42,6 +42,7 @@ from configManager import ConfigManager
 from i18n import _, set_lang
 from loghandler import start_log
 from mem_guard import enable_escape_cancel, install_global_cancel_handlers
+from process_wrappers import FFmpegFailed
 
 try:
     import aienhance as ae
@@ -234,6 +235,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         else:
             co.show_info()
 
+    except FFmpegFailed:
+        sys.exit(1)
     except KeyboardInterrupt:
         # Sauberer Abbruch ohne Traceback
         try:

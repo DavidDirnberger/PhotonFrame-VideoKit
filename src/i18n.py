@@ -513,6 +513,8 @@ MESSAGES = {
         "std_quality": "Balanced; direct interpolation without additional filters.",
         "hq_quality": "Mild pre-denoising before MV estimation for more stable motion vectors.",
         "max_quality": "Stronger pre-denoising plus gentle sharpening for the cleanest result.",
+        "minterpolate_missing": "Your ffmpeg build lacks the 'minterpolate' filter. Please install/upgrade ffmpeg with minterpolate support.",
+        "ffmpeg_error_details": "ffmpeg stderr (last {n} lines):",
         # Images to Video
         "enter_fps_or_duration": "Enter the desired frame rate (X{fps,fp,f}), time per frame (X{h,m,s,ms,ns}), or total duration (HH:MM:SS MM:SS SS S) for the video.",
         "creating_video_progress": "Creating Video #ofilename from images",
@@ -1187,6 +1189,8 @@ MESSAGES = {
         "std_quality": "Ausgewogen; direkte Interpolation ohne Zusatzfilter.",
         "hq_quality": "Leichtes Pre-Denoising vor der MV-Schätzung für stabilere Bewegungsvektoren.",
         "max_quality": "Stärkeres Pre-Denoising plus sanftes Nachschärfen für möglichst sauberes Resultat.",
+        "minterpolate_missing": "Dein ffmpeg-Build enthält keinen 'minterpolate'-Filter. Bitte ffmpeg mit minterpolate-Unterstützung installieren/aktualisieren.",
+        "ffmpeg_error_details": "ffmpeg-Fehlerausgabe (letzte {n} Zeilen):",
         # Images to Video
         "enter_fps_or_duration": "Gewünschte Bildfrequenz (X{fps,fp,f}), Zeit pro Frame (X{h,m,s,ms,ns}) oder Gesamtdauer (HH:MM:SS MM:SS SS S) für das Video eingeben",
         "creating_video_progress": "Erstelle Video #ofilename aus Bildreihe",

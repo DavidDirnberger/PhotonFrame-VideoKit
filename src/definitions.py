@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Final, List, Optional, Set, Tuple, TypedDict, Union
 
-__version__ = "0.2.1-alpha"
+__version__ = "0.2.2-alpha"
 
 LOG_DIR = "LOG_DIRECTORY"
 LOG_FILE = "LOG_DIRECTORY/PhotonFrame_VideoKit.log"
@@ -306,6 +306,7 @@ VIDEO_EXTENSIONS = [
     ".flv",
     ".mpeg",
     ".mpg",
+    ".m2ts",
     ".gif",
 ]
 AUDIO_EXTENSIONS = {".mp3", ".aac", ".wav", ".flac", ".ogg"}
@@ -328,6 +329,7 @@ EXT_TO_CONTAINER = {
     "mpeg": "mpeg",
     "mpe": "mpeg",
     "vob": "mpeg",
+    "m2ts": "mpegts",
 }
 
 # 4) Fallback-Policy je Codec-Familie (nur *gleiche Familie*, in sinnvoller Reihenfolge)
