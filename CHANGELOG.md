@@ -151,5 +151,31 @@ human-readable summaries).
 
 ---
 
+### [0.3.0-alpha] – 2026-01-14
+
+### Added
+
+   - metadata: Extended media probing output with additional HDR and bitrate details:
+
+   - HDR type (e.g., HDR10 / HLG / Dolby Vision where detectable)
+
+   - Video bitrate (reported as a dedicated field to make quality/compatibility checks easier)
+
+   - convert: Added explicit audio configuration controls to better target playback compatibility and consistent library standards:
+
+   - Audio codec selection (choose the desired output codec instead of relying on implicit defaults)
+
+   - Audio channel layout / channel count selection (e.g., force stereo, preserve multichannel, etc., depending on your chosen workflow)
+
+   - convert: Implemented HDR → SDR mapping to enable creating SDR-compatible outputs from HDR sources without manual filter construction, improving playback compatibility on non-HDR displays/clients.
+
+   - convert: Introduced an explicit pixel format selector, allowing you to control output subsampling/format (e.g., yuv420p for broad device compatibility) instead of inheriting encoder defaults.
+
+   - convert: Added an explicit video bitrate option to allow deterministic output targeting (useful for bandwidth-constrained devices, Jellyfin streaming profiles, and consistent storage planning).
+
+
+---
+
+[0.3.0-alpha]: https://github.com/<your-account>/PhotonFrame-VideoKit/releases/tag/v0.3.0-alpha
 [0.2.1-alpha]: https://github.com/<your-account>/PhotonFrame-VideoKit/releases/tag/v0.2.1-alpha
 [0.0.1-alpha]: https://github.com/<your-account>/PhotonFrame-VideoKit/releases/tag/v0.0.1-alpha

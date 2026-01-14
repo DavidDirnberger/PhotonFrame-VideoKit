@@ -997,6 +997,7 @@ def try_encode_with_fallbacks(
     vf_chain: Optional[str],
     ffmpeg_bin: str = "ffmpeg",
     preferred_encoder: Optional[str] = None,
+    force_sw: bool = False,
 ) -> List[str]:
     enc_text = _run_ffmpeg_encoders(ffmpeg_bin)
     available = set(_parse_encoder_names(enc_text))
@@ -1058,6 +1059,14 @@ def try_encode_with_fallbacks(
             continue
         filtered.append(e)
     candidates = filtered
+
+    if force_sw:
+        sw_only = [e for e in candidates if not _is_hw(e)]
+        if not sw_only:
+            fallback_sw = encoder_for_codec(desired_core)
+            sw_only = [fallback_sw] if fallback_sw else []
+        candidates = sw_only
+        prefer_hw = False
 
     hw_list = [e for e in candidates if _is_hw(e)]
     sw_list = [e for e in candidates if not _is_hw(e)]
@@ -2483,6 +2492,8 @@ def build_transcode_plan(
     preset_max_fps: Optional[int],
     force_key_at_start: Optional[bool] = False,
     preserve_ar: bool = True,
+    allow_stream_copy: bool = True,
+    force_sw: bool = False,
 ) -> TranscodePlan:
     spec = _get_preset_spec(defin.CONVERT_PRESET, preset_name)
     is_lossless = bool(spec.get("lossless"))
@@ -2506,7 +2517,7 @@ def build_transcode_plan(
 
     # 0) SMART COPY (vor allem anderen), wenn kein Keyframe-Zwang am Start
     sc_plan = None
-    if not force_key_at_start:
+    if not force_key_at_start and allow_stream_copy:
         sc_plan = _build_stream_copy_plan(
             input_path=input_path,
             target_container=target_container,
@@ -3066,6 +3077,7 @@ def build_transcode_plan(
         vf_chain=vf_chain,
         ffmpeg_bin="ffmpeg",
         preferred_encoder=chosen_preferred_encoder,
+        force_sw=force_sw,
     )
 
     # DNx-Sonderlogik anwenden (Profile/Bitraten/Pixelformat)

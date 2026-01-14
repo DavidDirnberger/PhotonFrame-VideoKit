@@ -230,9 +230,18 @@ def expand_glob_patterns(patterns: Iterable[str]) -> List[str]:
     """
     out: List[str] = []
     for pat_in in patterns:
-        pat = str(pat_in).replace("%", "*")
+        raw = str(pat_in)
+        expanded_raw = Path(raw).expanduser()
+
+        # Regel: wenn der Pfad exakt existiert, niemals globben (auch wenn Zeichen wie [] enthalten sind)
+        if expanded_raw.exists():
+            out.append(str(expanded_raw))
+            continue
+
+        # Erst wenn nicht existent und Wildcards enthalten sind, globben.
+        pat = str(raw).replace("%", "*")
         pat = str(Path(pat).expanduser())
-        if any(ch in pat for ch in "*?["):
+        if any(ch in pat for ch in "*?[]"):
             out.extend(glob.glob(pat, recursive=True))
         else:
             out.append(pat)  # wörtlicher Pfad

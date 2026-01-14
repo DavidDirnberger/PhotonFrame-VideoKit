@@ -56,7 +56,7 @@ def extract_thumbnail(file: Path, tmpdir: Path = defi.TMP_DIR) -> Optional[Path]
     """
     Extrahiert das eingebettete Cover:
       • MP4/MOV: attached_pic-Video-Stream
-      • MKV/WebM: (optional) falls MJPEG-Video vorhanden; Attachments weglassen
+      • MKV/WebM: MJPEG-Video oder Bild-Attachments (image/*)
     """
     tmpdir.mkdir(parents=True, exist_ok=True)
     thumb_path = tmpdir / (file.stem + "_thumb.jpg")
@@ -104,10 +104,9 @@ def extract_thumbnail(file: Path, tmpdir: Path = defi.TMP_DIR) -> Optional[Path]
                 "ffprobe",
                 "-v",
                 "error",
-                "-select_streams",
-                "v",
-                "-show_entries",
-                "stream=index,codec_name",
+                "-print_format",
+                "json",
+                "-show_streams",
                 "-of",
                 "json",
                 str(file),
@@ -117,38 +116,100 @@ def extract_thumbnail(file: Path, tmpdir: Path = defi.TMP_DIR) -> Optional[Path]
         )
         try:
             j = json.loads(probe.stdout or "{}")
-            for s in j.get("streams", []):
-                if s.get("codec_name") == "mjpeg":
-                    idx = int(s["index"])
-                    cmd = [
-                        "ffmpeg",
-                        "-y",
-                        "-hide_banner",
-                        "-loglevel",
-                        "error",
-                        "-stats",
-                        "-stats_period",
-                        "0.5",
-                        "-i",
-                        str(file),
-                        "-map",
-                        f"0:{idx}",
-                        "-frames:v",
-                        "1",
-                        "-q:v",
-                        "2",
-                        str(thumb_path),
-                    ]
-                    pw.run_ffmpeg_with_progress(
-                        file.name,
-                        cmd,
-                        _("extracting_cover"),
-                        _("cover_extracted"),
-                        output_file=thumb_path,
-                        BATCH_MODE=True,
-                        force_overwrite=True,
-                    )
-                    return thumb_path if thumb_path.exists() else None
+            streams = j.get("streams", [])
+            attach_idx: Optional[int] = None
+            attach_ext = ".jpg"
+            mjpeg_idx: Optional[int] = None
+            for s in streams:
+                try:
+                    idx = int(s.get("index"))
+                except Exception:
+                    continue
+                ctype = s.get("codec_type")
+                cname = s.get("codec_name")
+                tags = s.get("tags") or {}
+                mimetype = str(tags.get("mimetype") or "")
+                fname = str(tags.get("filename") or "").lower()
+
+                if ctype == "video" and cname == "mjpeg":
+                    mjpeg_idx = idx
+                    break
+
+                if ctype == "attachment" and (
+                    mimetype.startswith("image/")
+                    or fname.endswith((".jpg", ".jpeg", ".png", ".webp"))
+                ):
+                    attach_idx = idx
+                    if mimetype.endswith("png") or fname.endswith(".png"):
+                        attach_ext = ".png"
+                    elif mimetype.endswith("webp") or fname.endswith(".webp"):
+                        attach_ext = ".webp"
+                    elif mimetype.endswith("jpeg") or fname.endswith(".jpeg"):
+                        attach_ext = ".jpeg"
+                    else:
+                        attach_ext = ".jpg"
+                    break
+
+            if mjpeg_idx is not None:
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-stats",
+                    "-stats_period",
+                    "0.5",
+                    "-i",
+                    str(file),
+                    "-map",
+                    f"0:{mjpeg_idx}",
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "2",
+                    str(thumb_path),
+                ]
+                pw.run_ffmpeg_with_progress(
+                    file.name,
+                    cmd,
+                    _("extracting_cover"),
+                    _("cover_extracted"),
+                    output_file=thumb_path,
+                    BATCH_MODE=True,
+                    force_overwrite=True,
+                )
+                return thumb_path if thumb_path.exists() else None
+
+            if attach_idx is not None:
+                attach_out = tmpdir / (file.stem + "_thumb" + attach_ext)
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-stats",
+                    "-stats_period",
+                    "0.5",
+                    "-i",
+                    str(file),
+                    "-map",
+                    f"0:{attach_idx}",
+                    "-c",
+                    "copy",
+                    str(attach_out),
+                ]
+                pw.run_ffmpeg_with_progress(
+                    file.name,
+                    cmd,
+                    _("extracting_cover"),
+                    _("cover_extracted"),
+                    output_file=attach_out,
+                    BATCH_MODE=True,
+                    force_overwrite=True,
+                )
+                return attach_out if attach_out.exists() else None
         except Exception:
             pass
 

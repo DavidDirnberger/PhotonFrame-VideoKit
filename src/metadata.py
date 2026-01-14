@@ -13,7 +13,9 @@ import definitions as defin
 import fileSystem as fs
 import helpers as he
 import metadata_support as ms
+import process_wrappers as pw
 import userInteraction as ui
+import video_pixfmt as vp
 import video_thumbnail as vt
 
 # local modules
@@ -21,6 +23,120 @@ from i18n import _, tr
 
 # --- Virtuelle, nur lesbare Query-Tags (nicht setz-/löschbar) ---------------
 VIRTUAL_QUERY_TAGS: List[str] = list(getattr(defin, "VIRTUAL_META_INFO", {}).keys())
+
+
+def _cover_stream_indices(path: Path) -> list[int]:
+    """Ermittle Stream-Indizes, die wie Cover/Thumbnails aussehen."""
+    try:
+        res = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_streams",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(res.stdout or "{}")
+        streams: list[dict[str, Any]] = data.get("streams") or []
+    except Exception:
+        return []
+
+    cover_idx: list[int] = []
+    for s in streams:
+        idx_raw = s.get("index")
+        if isinstance(idx_raw, int):
+            idx = idx_raw
+        elif isinstance(idx_raw, str):
+            try:
+                idx = int(idx_raw)
+            except Exception:
+                continue
+        else:
+            continue
+        codec_type = str(s.get("codec_type") or "")
+        codec_name = str(s.get("codec_name") or "")
+        disp = s.get("disposition") or {}
+        tags = s.get("tags") or {}
+        mimetype = str(tags.get("mimetype") or "")
+        filename = str(tags.get("filename") or "")
+
+        if disp.get("attached_pic") == 1:
+            cover_idx.append(idx)
+            continue
+
+        if codec_type == "attachment":
+            if mimetype.startswith("image/") or filename.lower().endswith(
+                (".jpg", ".jpeg", ".png")
+            ):
+                cover_idx.append(idx)
+            continue
+
+        if codec_type == "video" and mimetype.startswith("image/"):
+            cover_idx.append(idx)
+            continue
+
+        if codec_type == "video" and codec_name == "mjpeg":
+            cover_idx.append(idx)
+            continue
+
+    return cover_idx
+
+
+def _remove_cover_streams(
+    path: Path, cover_indices: list[int], *, BATCH_MODE: bool = False
+) -> None:
+    """Entfernt gezielt Cover-/Thumbnail-Streams, ohne andere Anhänge anzutasten."""
+    if not cover_indices:
+        return
+    tmp = path.with_name(path.stem + ".__nocover__" + path.suffix)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-stats",
+        "-stats_period",
+        "0.5",
+        "-i",
+        str(path),
+        "-map",
+        "0",
+    ]
+    for idx in cover_indices:
+        cmd += ["-map", f"-0:{idx}"]
+    cmd += [
+        "-c",
+        "copy",
+        "-map_metadata",
+        "0",
+        "-map_chapters",
+        "0",
+        str(tmp),
+    ]
+
+    try:
+        out_path = pw.run_ffmpeg_with_progress(
+            path.name,
+            cmd,
+            "Entferne unerwartetes Cover …",
+            "Cover entfernt.",
+            output_file=tmp,
+            BATCH_MODE=BATCH_MODE,
+            force_overwrite=True,
+        )
+        if isinstance(out_path, (str, Path)) and Path(out_path).exists():
+            Path(out_path).replace(path)
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _build_MetadataArgs_dataclass() -> Type[Any]:
@@ -61,8 +177,9 @@ def _probe_stream_info(path: Path) -> dict[str, Any]:
             "v:0",
             "-show_entries",
             "stream=codec_name,width,height,r_frame_rate,pix_fmt,"
-            "sample_aspect_ratio,display_aspect_ratio,"
-            "color_primaries,color_transfer,color_space,color_range,chroma_location",
+            "bit_rate,sample_aspect_ratio,display_aspect_ratio,side_data_list,"
+            "color_primaries,color_transfer,color_space,color_range,chroma_location"
+            ":stream_tags",
             "-of",
             "json",
             str(path),
@@ -84,6 +201,9 @@ def _probe_stream_info(path: Path) -> dict[str, Any]:
         "r_frame_rate": stream.get("r_frame_rate"),
         "codec_name": stream.get("codec_name"),
         "pix_fmt": stream.get("pix_fmt"),
+        "bit_rate": stream.get("bit_rate"),
+        "tags": stream.get("tags"),
+        "side_data_list": stream.get("side_data_list"),
         "sample_aspect_ratio": stream.get("sample_aspect_ratio"),
         "display_aspect_ratio": stream.get("display_aspect_ratio"),
         # NEW: color signalling
@@ -193,6 +313,13 @@ def _virtual_tag_value(path: Path, key: str) -> str:
     if key == "thumbnail":
         try:
             return he.yesno(vt.check_thumbnail(path, silent=True))
+        except Exception:
+            return "?"
+    if key == "video_bitrate":
+        try:
+            si = _probe_stream_info(path)
+            br = _extract_bitrate_int(si)
+            return _fmt_kbps(br) if br else "—"
         except Exception:
             return "?"
     if key == "alpha_channel":
@@ -460,6 +587,48 @@ def _print_color_info_from_streaminfo(si: dict[str, Any]) -> None:
     co.print_value_info("   " + _("color_trc_label"), trc)
     co.print_value_info("   " + _("color_matrix_label"), mat)
     co.print_value_info("   " + _("color_range_label"), rng)
+
+
+def _tags_contain_hdr10plus(tags: dict[str, Any]) -> bool:
+    for k, v in tags.items():
+        for item in (k, v):
+            s = str(item).lower()
+            if "hdr10+" in s or "hdr10plus" in s:
+                return True
+            if "smpte2094" in s or "2094-40" in s:
+                return True
+    return False
+
+
+def _detect_hdr_type(path: Path, si: Optional[dict[str, Any]] = None) -> str:
+    try:
+        info = si or _probe_stream_info(path)
+        meta = {
+            "color_primaries": cast(Optional[str], info.get("color_primaries")),
+            "color_trc": cast(Optional[str], info.get("color_transfer")),
+            "colorspace": cast(Optional[str], info.get("color_space")),
+            "color_range": cast(Optional[str], info.get("color_range")),
+        }
+        src_pf = cast(Optional[str], info.get("pix_fmt"))
+        is_hdr = vp.is_hdr_signal(meta, src_pf)
+        if not is_hdr:
+            return "SDR"
+
+        side_data = info.get("side_data_list")
+        if isinstance(side_data, list):
+            for sd in side_data:
+                if isinstance(sd, dict):
+                    sdt = str(sd.get("side_data_type") or "").lower()
+                    if "hdr10+" in sdt or "hdr10plus" in sdt:
+                        return "HDR+"
+
+        tags = info.get("tags")
+        if isinstance(tags, dict) and _tags_contain_hdr10plus(tags):
+            return "HDR+"
+
+        return "HDR"
+    except Exception:
+        return "SDR"
 
 
 # --- Sprache / Language (freundliche Anzeige) --------------------------------
@@ -929,6 +1098,7 @@ def _print_all_tags(
         dar = si.get("display_aspect_ratio") or f"{enc_w}:{enc_h}"
         fpsr = str(si.get("r_frame_rate") or "0/1")
         codec = si.get("codec_name", "?")
+
         pxfmt = si.get("pix_fmt", "?")
         co.print_value_info(
             "   " + _("resolution_encoded_label"),
@@ -941,6 +1111,10 @@ def _print_all_tags(
                 f"{disp_w}x{enc_h}  (SAR {sar}, DAR {dar})",
             )
         co.print_value_info("   " + _("codec_label"), codec or "?")
+        br = _extract_bitrate_int(si)
+        v_bitrate = _fmt_kbps(br) if br else "—"
+        co.print_value_info("   " + _("video_bitrate_label"), v_bitrate)
+        co.print_value_info("   " + _("hdr_label"), _detect_hdr_type(path, si))
         co.print_value_info("   " + _("fps_label"), he.format_fps(fpsr))
         co.print_value_info("   " + _("pixel_format_label"), pxfmt or "?")
 
@@ -1205,7 +1379,19 @@ def metadata(args: Any) -> None:
     # ====== pro Datei ======
     for file in files:
         path = Path(file)
+        # Thumb-Persistenz: vorhandenes Cover sichern
+        preserved_thumb: Optional[Path] = None
+        try:
+            preserved_thumb = vt.extract_thumbnail(path)
+        except Exception:
+            preserved_thumb = None
+
         raw_tags, canon_edit, display_tags = _compose_tag_views(path)
+        try:
+            cover_streams_before = _cover_stream_indices(path)
+        except Exception:
+            cover_streams_before = []
+        thumb_changed = False
 
         # RAW-READ-ONLY: nur Werte, keine Banner
         if raw_read_only:
@@ -1221,10 +1407,22 @@ def metadata(args: Any) -> None:
 
         # Kurz-Thumb-Aktionen
         if getattr(args, "delete_thumbnail", False):
+            try:
+                _remove_cover_streams(
+                    path, _cover_stream_indices(path), BATCH_MODE=True
+                )
+            except Exception:
+                pass
             vt.delete_thumbnail(path, BATCH_MODE=True)
             continue
         val_thumb = getattr(args, "set_thumbnail", None)
         if val_thumb is not None:
+            try:
+                _remove_cover_streams(
+                    path, _cover_stream_indices(path), BATCH_MODE=True
+                )
+            except Exception:
+                pass
             vt.set_thumbnail(path, value=val_thumb, BATCH_MODE=True)
             continue
         if getattr(args, "show_thumbnail", False):
@@ -1452,12 +1650,21 @@ def metadata(args: Any) -> None:
                 fmt_name, fmt_long, duration = _probe_format_info(path)
                 container = path.suffix.lstrip(".").lower()
                 co.print_value_info("   " + _("duration"), _format_hms(duration))
+                try:
+                    has_thumb = vt.check_thumbnail(path, silent=True)
+                except Exception:
+                    has_thumb = False
+                co.print_value_info("   " + _("thumbnail_label"), he.yesno(has_thumb))
                 long_disp = (fmt_long or fmt_name or "") or ""
                 co.print_value_info(
                     "   " + _("container"),
                     f"{container}{' (' + long_disp + ')' if long_disp else ''}",
                 )
                 co.print_value_info("   " + _("codec_label"), codec or "?")
+                br = _extract_bitrate_int(si)
+                v_bitrate = _fmt_kbps(br) if br else "—"
+                co.print_value_info("   " + _("video_bitrate_label"), v_bitrate)
+                co.print_value_info("   " + _("hdr_label"), _detect_hdr_type(path, si))
                 co.print_value_info("   " + _("fps_label"), he.format_fps(fpsr))
                 co.print_value_info("   " + _("pixel_format_label"), pxfmt or "?")
                 _print_color_info_from_streaminfo(si)
@@ -1582,9 +1789,27 @@ def metadata(args: Any) -> None:
                 )
 
                 if action == "thumb":
+                    try:
+                        _remove_cover_streams(
+                            path,
+                            _cover_stream_indices(path),
+                            BATCH_MODE=BATCH_MODE,
+                        )
+                    except Exception:
+                        pass
+                    thumb_changed = True
                     vt.set_thumbnail(str(path))
                     continue
                 if action == "del_thumb":
+                    try:
+                        _remove_cover_streams(
+                            path,
+                            _cover_stream_indices(path),
+                            BATCH_MODE=BATCH_MODE,
+                        )
+                    except Exception:
+                        pass
+                    thumb_changed = True
                     vt.delete_thumbnail(str(path), BATCH_MODE=BATCH_MODE)
                     continue
                 if action == "exit":
@@ -1622,6 +1847,19 @@ def metadata(args: Any) -> None:
 
         if (BATCH_MODE and (set_map or delete_keys)) or (not BATCH_MODE):
             try:
+                # Falls ein Cover vorhanden ist und nicht explizit geändert wird,
+                # entfernen wir es vor dem Schreiben und fügen es anschließend wieder ein,
+                # damit ffmpeg beim Remux keine zweite Cover-Spur anhängt.
+                removed_cover = False
+                try:
+                    if preserved_thumb and not thumb_changed:
+                        _remove_cover_streams(
+                            path, _cover_stream_indices(path), BATCH_MODE=True
+                        )
+                        removed_cover = True
+                except Exception:
+                    removed_cover = False
+
                 # WICHTIG: Nutzung der robusten Schreib-API (AVI-Sanity + XMP handled inside)
                 ms.write_editable_metadata(path, path, canon_edit)  # in-place
                 ok, missing = ms.verify_metadata_written(path, canon_edit)
@@ -1638,10 +1876,57 @@ def metadata(args: Any) -> None:
                         )
                     )
                 print()
+
+                # Safety: Verhindere, dass beim re-muxen unbeabsichtigt ein Cover/Thumbnail hinzukommt.
+                try:
+                    covers_after = _cover_stream_indices(path)
+                    # Wenn vorher kein Cover da war und jetzt eins auftaucht → entfernen.
+                    if not thumb_changed and not cover_streams_before and covers_after:
+                        _remove_cover_streams(path, covers_after, BATCH_MODE=True)
+                        co.print_warning("Unerwartetes Cover/Thumbnail entfernt.")
+                    # Wenn mehrere Cover-Streams entstanden sind → aufräumen und ggf. neu setzen.
+                    elif not thumb_changed and len(covers_after) > 1:
+                        _remove_cover_streams(path, covers_after, BATCH_MODE=True)
+                        if preserved_thumb and preserved_thumb.exists():
+                            vt.set_thumbnail(
+                                path, value=str(preserved_thumb), BATCH_MODE=True
+                            )
+                except Exception:
+                    pass
+
+                # Falls ein vorhandenes Thumbnail entfernt wurde → gezielt wieder einbetten.
+                try:
+                    if (
+                        preserved_thumb
+                        and preserved_thumb.exists()
+                        and not thumb_changed
+                    ):
+                        # Wenn wir es vorab entfernt haben, unbedingt wieder hinzufügen.
+                        if removed_cover or not vt.check_thumbnail(path, silent=True):
+                            vt.set_thumbnail(
+                                path, value=str(preserved_thumb), BATCH_MODE=True
+                            )
+                        else:
+                            # Sicherstellen, dass nicht mehrere Cover-Streams existieren
+                            covers_now = _cover_stream_indices(path)
+                            if len(covers_now) > 1:
+                                _remove_cover_streams(path, covers_now, BATCH_MODE=True)
+                                vt.set_thumbnail(
+                                    path, value=str(preserved_thumb), BATCH_MODE=True
+                                )
+                except Exception:
+                    pass
             except Exception as e:
                 co.print_error(
                     _("metadata_write_failed").format(filename=path.name, error=e)
                 )
+
+        # Cleanup temporäres Thumb
+        try:
+            if preserved_thumb and preserved_thumb.exists():
+                preserved_thumb.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     if BATCH_MODE and list_json:
         print(json.dumps(json_out, indent=2, ensure_ascii=False))

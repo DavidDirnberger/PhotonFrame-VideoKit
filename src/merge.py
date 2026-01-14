@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+from fractions import Fraction
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
@@ -708,6 +709,8 @@ def _video_chain_expr(
     fps: int,
     pix_fmt: str,
     pad_alpha: bool,
+    target_sar: str = "1:1",
+    same_geom: bool = False,
 ) -> str:
     """Gibt die Filter-Teil-Expression (ohne Labels) für einen Videozweig zurück.
     WICHTIG: Pixelformat jetzt bewusst AM ANFANG, damit color/pad mit Alpha arbeiten können.
@@ -719,7 +722,9 @@ def _video_chain_expr(
     parts.append(f"format={pix_fmt}")
 
     # 1) Größen-/AR-Anpassung
-    if strategy == "no-scale":
+    if same_geom and strategy in {"match-first", "no-scale"}:
+        pass  # keine Skalierung/Pad nötig
+    elif strategy == "no-scale":
         parts.append(f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color={pad_col}")
     elif strategy == "match-first":
         if fit_mode == "pad":
@@ -738,7 +743,7 @@ def _video_chain_expr(
 
     # 2) Vereinheitlichung
     parts.append(f"fps=fps={fps}")
-    parts.append("setsar=1")
+    parts.append(f"setsar={_sar_to_filter_value(target_sar)}")
 
     return ",".join(parts)
 
@@ -759,6 +764,7 @@ def _build_concat_filtergraph(
     offset_sec: float,
     pause_sec: float,
     pad_alpha: bool,
+    target_sar: str = "1:1",
     # NEW:
     tail_pad_sec: float = 0.0,
 ) -> Tuple[List[str], str]:
@@ -776,7 +782,17 @@ def _build_concat_filtergraph(
     seg_a_labels: List[str] = []
     chains: List[str] = []
 
-    vexpr = _video_chain_expr(strategy, fit_mode, W, H, fps, pix_fmt, pad_alpha)
+    filler_vexpr = _video_chain_expr(
+        strategy,
+        fit_mode,
+        W,
+        H,
+        fps,
+        pix_fmt,
+        pad_alpha,
+        target_sar,
+        True,
+    )
 
     # Startoffset
     seg_idx = 0
@@ -785,17 +801,37 @@ def _build_concat_filtergraph(
         alab = f"[as{seg_idx}]"
         seg_v_labels.append(vlab)
         seg_a_labels.append(alab)
-        vsrc = f"color=c={'black@0' if pad_alpha else 'black'}:s={W}x{H}:d={max(0.0, offset_sec)},{vexpr}"
+        vsrc = f"color=c={'black@0' if pad_alpha else 'black'}:s={W}x{H}:d={max(0.0, offset_sec)},{filler_vexpr}"
         asrc = f"anullsrc=r=48000:cl=stereo:d={max(0.0, offset_sec)}"
         chains.append(f"{vsrc}{vlab}")
         chains.append(f"{asrc}{alab}")
         seg_idx += 1
 
     # Segmente
-    for i, (path, (has_a, dur)) in enumerate(zip(inputs, file_meta)):
+    # Per-Input Geometrie ermitteln
+    input_geom: List[Tuple[int, int, str]] = []
+    for p in inputs:
+        w_in, h_in, _pf, _fps_in = he.probe_wh_fmt_fps(str(p))
+        sar_in = _probe_sar_value(str(p))
+        input_geom.append((w_in, h_in, sar_in))
+
+    for i, (path, (has_a, dur), geom) in enumerate(zip(inputs, file_meta, input_geom)):
         in_v = f"[{i}:v:0]"
         out_v = f"[vs{seg_idx}]"
         seg_v_labels.append(out_v)
+        w_in, h_in, sar_in = geom
+        same_geom = (w_in == W) and (h_in == H)
+        vexpr = _video_chain_expr(
+            strategy,
+            fit_mode,
+            W,
+            H,
+            fps,
+            pix_fmt,
+            pad_alpha,
+            target_sar if target_sar else sar_in,
+            same_geom,
+        )
         chains.append(f"{in_v}{vexpr}{out_v}")
 
         out_a = f"[as{seg_idx}]"
@@ -817,7 +853,7 @@ def _build_concat_filtergraph(
             alab = f"[as{seg_idx}]"
             seg_v_labels.append(vlab)
             seg_a_labels.append(alab)
-            vsrc = f"color=c={'black@0' if pad_alpha else 'black'}:s={W}x{H}:d={max(0.0, pause_sec)},{vexpr}"
+            vsrc = f"color=c={'black@0' if pad_alpha else 'black'}:s={W}x{H}:d={max(0.0, pause_sec)},{filler_vexpr}"
             asrc = f"anullsrc=r=48000:cl=stereo:d={max(0.0, pause_sec)}"
             chains.append(f"{vsrc}{vlab}")
             chains.append(f"{asrc}{alab}")
@@ -829,7 +865,7 @@ def _build_concat_filtergraph(
         alab = f"[as{seg_idx}]"
         seg_v_labels.append(vlab)
         seg_a_labels.append(alab)
-        vsrc = f"color=c={'black@0' if pad_alpha else 'black'}:s={W}x{H}:r={fps}:d={max(0.0, tail_pad_sec)},{vexpr}"
+        vsrc = f"color=c={'black@0' if pad_alpha else 'black'}:s={W}x{H}:r={fps}:d={max(0.0, tail_pad_sec)},{filler_vexpr}"
         asrc = f"anullsrc=r=48000:cl=stereo:d={max(0.0, tail_pad_sec)}"
         chains.append(f"{vsrc}{vlab}")
         chains.append(f"{asrc}{alab}")
@@ -947,10 +983,69 @@ def _pick_fixed_resolution_interactive() -> Tuple[int, int, str]:
     return (wh[0], wh[1], label)
 
 
+def _probe_sar_value(path: str) -> str:
+    """Liefert sample_aspect_ratio als 'num:den', fallback '1:1'."""
+    try:
+        res = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=sample_aspect_ratio",
+                "-of",
+                "default=nk=1:nw=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        sar = (res.stdout or "").strip() or "1:1"
+        if sar in {"0:1", "1:0", "0:0"}:
+            sar = "1:1"
+        if not re.match(r"^\d+\s*:\s*\d+$", sar):
+            sar = "1:1"
+        return sar.replace(" ", "")
+    except Exception:
+        return "1:1"
+
+
+def _sar_to_filter_value(sar: str) -> str:
+    """Konvertiert 'num:den' zu 'num/den' für ffmpeg-Filter."""
+    s = (sar or "").strip()
+    if "/" in s:
+        return s
+    if ":" in s:
+        left, right = s.split(":", 1)
+        left = left.strip()
+        right = right.strip()
+        if left and right:
+            return f"{left}/{right}"
+    return "1/1"
+
+
+def _dar_from_dims_sar(w: int, h: int, sar: str) -> str:
+    try:
+        num, den = sar.split(":")
+        n = int(num.strip())
+        d = int(den.strip())
+        if n <= 0 or d <= 0:
+            raise ValueError
+    except Exception:
+        n, d = (1, 1)
+    try:
+        ratio = Fraction(w * n, h * d).limit_denominator(1000)
+        return f"{ratio.numerator}:{ratio.denominator}"
+    except Exception:
+        return "1:1"
+
+
 def _pick_strategy_and_dims(
     a: MergeArgs, batch_mode: bool, videos: List[str]
-) -> Tuple[str, str, Tuple[int, int], int, bool, str]:
-    """Return (strategy, fit_mode, (W,H), fps, all_have_alpha, tgt_label)."""
+) -> Tuple[str, str, Tuple[int, int], int, bool, str, str]:
+    """Return (strategy, fit_mode, (W,H), fps, all_have_alpha, tgt_label, target_sar)."""
     strategy_keys = [
         "match-first",
         "no-scale",
@@ -1049,7 +1144,19 @@ def _pick_strategy_and_dims(
             f" ({fit_mode})" if strategy == "match-first" else ""
         )
 
-    return strategy, fit_mode, (W, H), target_fps, any_have_alpha, tgt_label
+    target_sar = "1:1"
+    if videos and strategy in {"no-scale", "match-first"}:
+        target_sar = _probe_sar_value(videos[0])
+
+    return (
+        strategy,
+        fit_mode,
+        (W, H),
+        target_fps,
+        any_have_alpha,
+        tgt_label,
+        target_sar,
+    )
 
 
 def _infer_default_subtitle_title(sub_path: Path) -> str:
@@ -1301,7 +1408,7 @@ def _merge_video_concat(
         if out_path.suffix == "":
             out_path = out_path.with_suffix(f".{target_container}")
 
-    strategy, fit_mode, (W, H), target_fps, any_have_alpha, tgt_label = (
+    strategy, fit_mode, (W, H), target_fps, any_have_alpha, tgt_label, target_sar = (
         _pick_strategy_and_dims(a, batch_mode, video_files)
     )
     alpha_supported = _container_codec_supports_alpha(
@@ -1382,6 +1489,7 @@ def _merge_video_concat(
         offset_sec=off_sec,
         pause_sec=pause_sec,
         pad_alpha=_pix_fmt_has_alpha(target_pix_fmt),
+        target_sar=target_sar,
         tail_pad_sec=total_tail,
     )
 
@@ -1525,6 +1633,8 @@ def _merge_video_concat(
     total_est = max(video_total, longest_extra)
 
     cmd = autotune_final_cmd(video_files[0], cmd)
+
+    co.print_debug("Final ffmpeg command for concat merge:", cmd=cmd)
 
     pw.run_ffmpeg_with_progress(
         out_path.name,

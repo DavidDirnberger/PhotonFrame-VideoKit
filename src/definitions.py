@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Final, List, Optional, Set, Tuple, TypedDict, Union
 
-__version__ = "0.2.3-alpha"
+__version__ = "0.3.0-alpha"
 
 LOG_DIR = "LOG_DIRECTORY"
 LOG_FILE = "LOG_DIRECTORY/PhotonFrame_VideoKit.log"
@@ -1827,6 +1827,13 @@ VIRTUAL_META_INFO: Dict[str, VirtualMetaInfo] = {
             "en": "Frame rate of the first video stream",
         },
     },
+    "video_bitrate": {
+        "name": {"de": "Video-Bitrate", "en": "Video bitrate"},
+        "description": {
+            "de": "Bitrate des ersten Video-Streams.",
+            "en": "Bit rate of the first video stream.",
+        },
+    },
     "pixel_format": {
         "name": {"de": "Pixelformat", "en": "Pixel format"},
         "description": {
@@ -2169,10 +2176,12 @@ RELEVANT_PARAM_GROUPS: RelevantParamGroups = {
         "resolution",
         "scale",
         "framerate",
+        "video_bitrate",
+        "hdr_to_sdr",
         "offset",
         "deint",
     },
-    "audio": {"audio_source", "audio_codec"},
+    "audio": {"audio_source", "audio_codec", "audio_channels"},
     "container": {"container", "faststart", "lossless"},
     "time": {"start_time", "end_time"},
     # Stabilisierung: Methode immer zeigen; je nach Methode weitere Keys

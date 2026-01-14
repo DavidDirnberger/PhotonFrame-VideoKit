@@ -1,0 +1,3 @@
+- pixelformat auswählbar
+- audiocodec änderbar
+- Metadata HDR und SDR hinzufügen

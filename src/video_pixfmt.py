@@ -125,6 +125,7 @@ __all__ = [
     "infer_target_pix_fmt_from_plan",
     "playback_pix_fmt_for",
     "probe_color_metadata",
+    "is_hdr_signal",
 ]
 
 
@@ -367,6 +368,10 @@ def probe_color_metadata(
             "color_range": None,
             "pix_fmt": None,
         }
+
+
+def is_hdr_signal(meta: Dict[str, Optional[str]], src_pix_fmt: Optional[str]) -> bool:
+    return _is_hdr_signal(meta, src_pix_fmt)
 
 
 def _color_metadata_args(meta: Dict[str, Optional[str]]) -> List[str]:

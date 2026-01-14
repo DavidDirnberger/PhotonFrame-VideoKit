@@ -348,11 +348,32 @@ def create_parser() -> argparse.ArgumentParser:
     convert_parser.add_argument("--resolution", "-r", help=_("help_resolution"))
     convert_parser.add_argument("--framerate", "-fr", help=_("help_framerate"))
     convert_parser.add_argument(
+        "--hdr-to-sdr", action="store_true", help=_("help_hdr_to_sdr")
+    )
+    convert_parser.add_argument(
         "--codec",
         "-c",
         choices=list(getattr(defin, "VIDEO_CODECS", [])) + ["copy"],
         default=None,
         help=_("help_codec"),
+    )
+    convert_parser.add_argument("--pixelformat", "-px", help=_("help_pixelformat"))
+    convert_parser.add_argument("--audio-codec", "-ac", help=_("help_audio_codec"))
+    convert_parser.add_argument("--audio-channel", "-ach", help=_("help_audio_channel"))
+    convert_parser.add_argument(
+        "--keep-subtitles",
+        action="store_true",
+        help=_("help_keep_subtitles"),
+    )
+    convert_parser.add_argument(
+        "--subtitle-format",
+        default="srt",
+        help=_("help_subtitle_format"),
+    )
+    convert_parser.add_argument(
+        "--video-bitrate",
+        "-vb",
+        help=_("help_video_bitrate"),
     )
     convert_parser.add_argument("--output", "-o", help=_("help_output_path"))
 
